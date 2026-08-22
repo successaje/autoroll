@@ -166,6 +166,58 @@ gas or lost its queue slot. Both are cheap no-ops on a market the vault holds no
 position in, which matters because a keeper sweeping the venue calls them
 constantly.
 
+## The end-to-end roll test
+
+`test/AutoRollVault.roll.t.sol` drives a roll all the way through against a real
+dreamDEX window — real module, real CLOB, real ERC-6909 singleton, a real resting
+book that we cross for a real fill. Nothing is mocked. The fork is **pinned** to a
+block where the fixture window is still Trading with liquidity at its best ask;
+without the pin it would have expired long before anyone ran it.
+
+Resolution goes through `voidExpired()` rather than the oracle. A fork cannot
+advance the oracle's off-chain answer, but `voidExpired` is a real permissionless
+protocol path and it pays both sides 0.5, so redemption, accounting and the
+requeue are all exercised for real:
+
+```
+filled  quantity: 30769000     (30.769 contracts)
+        spent   : 16522953     (16.52 tUSDC — the IOC partly filled)
+redeemed:         15384500     (half a contract each, voided)
+bankroll:         98861547
+```
+
+Note `spent` is under the 20 tUSDC the policy asked for: the IOC filled what the
+book had and the position was charged what it actually cost, which is the whole
+point of that fix.
+
+`scripts/find-fixture.ts` regenerates the pin when the fixture ages out.
+
+### Four more defects it caught immediately
+
+Writing this test found four things that eleven passing custody tests had not,
+because none of them ever placed an order:
+
+**The wrong function.** The vault called the spot book's
+`placeOrder(bool isBid, …)`. Binary pools use **`placeBinaryOrder`**, where the
+YES/NO side is an explicit `OrderKind` enum (0 BUY_YES, 2 BUY_NO) and `price` is
+always in YES terms. A NO buy at probability `p` is a price of `one - p` — a
+detail no amount of reading the state machine would have surfaced.
+
+**No grid snapping.** Every order reverted `InvalidQuantity(30703694, 1000)`.
+Prices must land on the tick grid and sizes on the lot grid, read per pool from
+`getOrderBookParameters()`. `_quote` now snaps a YES limit *down* and a NO limit
+*up* — in both cases the direction that can only lower what we pay.
+
+**An unfilled IOC reverts.** `ImmediateOrCancelNoFill()` is not a quiet zero
+return. Unhandled, it would revert the entire reactive handler and burn the
+vault's gas on every window it happened to miss. It is now caught, and a missed
+window leaves the position queued rather than counting as anything.
+
+**No operator grant.** `module.redeem` pulls the holder's winning tokens off the
+ERC-6909 singleton, which needs the module approved as an operator. Without it
+every harvest reverted `InsufficientPermission()` — inside the reactive handler,
+where nobody would have seen it. Granted once in the constructor.
+
 ## Four fund-loss defects, and what they were
 
 Found by auditing the vault after the off-chain path was working. All four are

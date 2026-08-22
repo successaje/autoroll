@@ -172,6 +172,12 @@ contract AutoRollVault is SomniaEventHandler {
         module = IBinaryMarketsModule(_module);
         outcomeToken = IOutcomeToken6909(_outcomeToken);
         collateral = IERC20(_collateral);
+
+        // One-time, for the life of the vault. Redemption is module-routed — the
+        // module pulls our winning tokens off the ERC-6909 singleton — so without
+        // this grant every harvest reverts `InsufficientPermission()`, and it
+        // would revert inside the reactive handler where nobody sees it.
+        outcomeToken.setOperator(_module, true);
     }
 
     // ------------------------------------------------------------ reactivity
@@ -388,29 +394,39 @@ contract AutoRollVault is SomniaEventHandler {
         uint256 collBefore = collateral.balanceOf(address(this));
         uint256 tokBefore = outcomeToken.balanceOf(address(this), outcomeId);
 
-        // Prices are Up probabilities in COLLATERAL units, not wad — the venue
-        // quotes on the collateral's own scale (6dp on testnet, 18dp on mainnet).
-        uint256 one = 10 ** IERC20Meta(address(collateral)).decimals();
-        uint256 limitPrice = (p.policy.maxPriceWad * one) / 1e18;
-        if (!p.up) limitPrice = one - limitPrice;
-        if (limitPrice == 0) return false;
+        (uint256 price, uint256 quantity) = _quote(pool, p.up, p.policy.maxPriceWad, stake);
+        if (quantity == 0) {
+            emit RollSkipped(id, marketId, "below the pool's minimum size");
+            return false;
+        }
 
         collateral.approve(pool, stake);
         // IOC, not a resting limit. A remainder left on the book has escrow the
         // vault cannot attribute back to one position when the window expires,
         // which silently books a filled-nothing roll as a total loss. IOC either
         // fills now or commits nothing at all.
-        IBinaryPool(pool).placeOrder(
-            p.up,
-            uint64(id),
-            limitPrice,
-            (stake * one) / limitPrice,
+        //
+        // The try/catch is not defensive padding: an IOC that crosses nothing
+        // reverts with `ImmediateOrCancelNoFill`, and an unfilled window is a
+        // completely ordinary event. Letting it propagate would revert the whole
+        // reactive handler and burn the vault's gas on every window it misses.
+        try IBinaryPool(pool).placeBinaryOrder(
+            p.up ? 0 : 2, // BUY_YES : BUY_NO
+            price,
+            quantity,
             uint64(expiry) * 1e9, // gotcha #5: capped at the window's own expiry
             2, // ImmediateOrCancel
+            0, // selfMatchingOption: default
+            address(0), // no builder
             0,
-            address(0),
-            0
-        );
+            uint64(id) // userData: our position id, for attribution
+        ) {
+            // fall through to the fill check
+        } catch {
+            collateral.approve(pool, 0);
+            emit RollSkipped(id, marketId, "no fill at limit");
+            return false;
+        }
         collateral.approve(pool, 0);
 
         uint256 got = outcomeToken.balanceOf(address(this), outcomeId) - tokBefore;
@@ -428,6 +444,47 @@ contract AutoRollVault is SomniaEventHandler {
 
         emit PositionRolled(id, marketId, spent, p.rolls);
         return true;
+    }
+
+    /**
+     *  Snap an order onto the pool's grid.
+     *
+     *  Off-grid prices and sub-lot sizes are rejected outright, so this is not
+     *  rounding for tidiness — an unsnapped order reverts every single time
+     *  (`InvalidQuantity`, `InvalidPrice`). Price is always quoted in YES terms:
+     *  a NO order at probability `p` is a price of `one - p`.
+     *
+     *  @return price    Tick-aligned limit, in YES terms, on the collateral's scale.
+     *  @return quantity Lot-aligned size, or 0 when it lands under the pool's floor.
+     */
+    function _quote(address pool, bool up, uint256 maxPriceWad, uint256 stake)
+        private
+        view
+        returns (uint256 price, uint256 quantity)
+    {
+        IBinaryPool.OrderBookParameters memory g = IBinaryPool(pool).getOrderBookParameters();
+        uint256 one = IBinaryPool(pool).getBinaryPoolParams().oneCollateral;
+        if (g.tickSize == 0 || g.lotSize == 0 || one == 0) return (0, 0);
+
+        uint256 limit = (maxPriceWad * one) / 1e18; // the most we will pay per contract
+        if (limit == 0 || limit >= one) return (0, 0);
+
+        if (up) {
+            // Snap DOWN: a lower YES limit can only pay less than we allowed.
+            price = (limit / g.tickSize) * g.tickSize;
+        } else {
+            // A NO buy pays `one - price`, so snapping the YES price UP is what
+            // lowers our cost. Ceil-divide onto the tick grid.
+            uint256 yes = one - limit;
+            price = ((yes + g.tickSize - 1) / g.tickSize) * g.tickSize;
+        }
+        if (price == 0 || price >= one) return (0, 0);
+
+        uint256 costPerContract = up ? price : one - price;
+        if (costPerContract == 0) return (0, 0);
+
+        quantity = ((stake * one) / costPerContract / g.lotSize) * g.lotSize;
+        if (quantity < g.minQuantity) return (price, 0);
     }
 
     /// Remove `id` from its asset's pending queue, if it is there.
