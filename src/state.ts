@@ -9,7 +9,7 @@ const FILE = process.env.AUTOROLL_STATE ?? ".autoroll-state.json";
 export function load(): Position[] {
   if (!existsSync(FILE)) return [];
   return JSON.parse(readFileSync(FILE, "utf8"), (k, v) =>
-    k === "principal" || k === "stake" || k === "quantity" ? BigInt(v) : v,
+    k === "principal" || k === "bankroll" || k === "atRisk" || k === "quantity" ? BigInt(v) : v,
   );
 }
 

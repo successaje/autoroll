@@ -8,7 +8,9 @@
     "probe:reactivity": "node scripts/probe-reactivity.mjs",
     "probe:logs": "node scripts/decode-logs.mjs",
     "markets": "tsx src/discover.ts",
-    "roll": "tsx src/roller.ts"
+    "roll": "tsx src/roller.ts",
+    "dev:api": "tsx src/server.ts",
+    "dev:app": "npm --prefix app run dev"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

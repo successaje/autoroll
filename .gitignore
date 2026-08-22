@@ -4,3 +4,6 @@ contracts/cache/
 contracts/lib/
 contracts/broadcast/
 .env
+.autoroll-state.json
+app/node_modules/
+app/dist/

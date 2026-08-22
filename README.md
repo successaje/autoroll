@@ -109,6 +109,47 @@ scripts/decode-logs.mjs              validation #4–#5
 scripts/verify-decoder.mjs           validation #6
 ```
 
+## The app
+
+```bash
+npm run dev:api     # roller + SSE on :5183   (add --live to sign and trade)
+npm run dev:app     # UI on :5184
+```
+
+Mobile-first, dark, one interaction: pick an asset, pick a side, tap. After that
+the position card is the whole screen — total equity as the hero figure, a
+bankroll curve against a break-even baseline, rolls / won / at-risk, the window
+currently held, and a stop button. The activity feed narrates every roll in plain
+language, including the ones that *didn't* happen ("BTC at 0.700 is over your 0.65
+limit — skipped").
+
+The chart follows the dataviz method: one series, so no legend; the palette is
+validated (`#3987e5` for equity, `#3987e5`/`#d95926` for the Up/Down pair — all
+checks pass on this surface); win and loss are never encoded as a red/green pair,
+which would fail CVD separation, so the curve's own direction carries it and the
+feed carries the word.
+
+The UI talks to the roller's HTTP surface rather than to chain directly. That is
+the demo seam: in production the browser signs `openPosition` against
+`AutoRollVault` and reads positions off chain, but routing through the roller
+makes the whole product demonstrable before the vault has its 32 STT.
+
+## Sizing: why a fraction, not the whole bankroll
+
+The first version compounded the entire balance into every window, and the first
+run made the flaw obvious: a binary contract pays **zero** on a loss, so betting
+everything means the first loss ends the run and `maxLosses` can never fire. That
+is a lottery ticket, not a position.
+
+So a position now carries a **bankroll**, and `sizeBps` decides how much of it
+goes into each window (default 20%). A loss costs the stake, not the position;
+wins compound the bankroll and scale the next stake with it. This is what makes a
+hundred-window roll survivable, and it is what makes the stop-loss, take-profit
+and max-rolls stops mean anything at all.
+
+Both engines were changed together — `Policy`, `nextStake` and `stopReason` are
+mirrored between `src/policy.ts` and `AutoRollVault.sol` on purpose.
+
 ## The off-chain roller
 
 The same state machine as the vault, driven from the Bot Kit surface instead of a
@@ -130,19 +171,20 @@ Dry run reads real books and real resolutions off Shannon and simulates only the
 fill, so the loop is demonstrable without a funded key. A real session:
 
 ```
-11:28:39  opened #1  BTC UP  stake 25.000
-11:28:48  #1 skip BTC @ 0.994 — over maxPrice 0.65
-11:29:00  #1 no fillable size on BTC-7692718-22AUG26-1129/tUSDC#YES — waiting for the next window
-11:29:10  #1 entered BTC-7694325-22AUG26-1130 UP @ 0.649  size 38.520  (58s to expiry)
-11:30:13  #1 roll 1  WON   25.000 → 38.520  (streak 1/1)
-11:30:13  #1 entered BTC-7697195-22AUG26-1131 UP @ 0.264  size 145.909  (59s to expiry)
-11:31:02  #1 roll 2  LOST  38.520 → 0.000  (streak 1/2)
-11:31:02  #1 CLOSED (wiped) — 25.000 in, 0.000 out
+18:05:52  opened #1  BTC UP  bankroll 100.000
+18:05:54  #1 entered BTC-7734625-22AUG26-1806 UP @ 0.611  staking 20.000  (22s to expiry)
+18:06:06  #1 roll 1  WON   staked 20.000 → 32.733  bankroll 112.733  (1/1 won)
+18:06:24  #1 entered BTC-7735712-22AUG26-1807 UP @ 0.331  staking 22.547  (51s to expiry)
+18:07:09  #1 roll 2  LOST  staked 22.547 → 0.000  bankroll  90.186  (1/2 won)
+18:07:09  #1 entered BTC-7733327-22AUG26-1808 UP @ 0.531  staking 18.037  (62s to expiry)
+18:08:11  #1 roll 3  LOST  staked 18.037 → 0.000  bankroll  72.149  (1/3 won)
 ```
 
-Two windows in under three minutes, one compounding win and one wipe, with the
-`maxPrice` guard and the illiquid-window skip both firing on the way. That is the
-demo video, and it needs no faucet.
+Four windows in four minutes, unattended: a compounding win, stakes that scale
+with the bankroll, and the run continuing through losses until the stop-loss
+closed it at 46.18 rather than zero. The `maxPrice` guard and the
+illiquid-window skip both fire along the way. That is the demo video, and it
+needs no faucet.
 
 `--cadence` selects the series: the venue runs 60s, 300s, 900s, 3600s and 14400s
 feeds on BTC and ETH concurrently.

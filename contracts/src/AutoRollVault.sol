@@ -44,7 +44,7 @@ contract AutoRollVault is SomniaEventHandler {
     // ---------------------------------------------------------------- events
 
     event PositionOpened(uint256 indexed id, address indexed user, bytes32 asset, bool up, uint256 stake);
-    event PositionRolled(uint256 indexed id, bytes32 indexed marketId, uint256 stake, uint32 streak);
+    event PositionRolled(uint256 indexed id, bytes32 indexed marketId, uint256 staked, uint32 rolls);
     event PositionClosed(uint256 indexed id, address indexed user, uint256 payout, string reason);
     event Subscribed(uint256 finalizedSubId, uint256 createdSubId);
 
@@ -75,9 +75,19 @@ contract AutoRollVault is SomniaEventHandler {
     struct Policy {
         uint32 maxRolls; // stop after this many windows (0 = unlimited)
         uint32 maxLosses; // stop after this many consecutive losing windows
-        uint64 takeProfitBps; // stop once stake >= principal * (1 + bps/10_000)
+        uint64 takeProfitBps; // stop once bankroll >= principal * (1 + bps/10_000)
+        /**
+         *  How much of the bankroll goes into each window, in bps.
+         *
+         *  This is the parameter that decides whether the product is a position
+         *  or a lottery ticket. A binary contract pays 0 on a loss, so betting
+         *  the whole bankroll every window means the FIRST loss ends the run no
+         *  matter what `maxLosses` says. Staking a fraction is what makes a
+         *  hundred-window roll survivable and the other stops meaningful.
+         */
+        uint32 sizeBps;
         uint64 maxPriceWad; // never pay more than this Up-probability (1e18 = certainty)
-        bool compound; // roll the whole balance, or re-stake the original principal
+        bool compound; // size off the live bankroll, or off the original principal
     }
 
     struct Position {
@@ -85,7 +95,8 @@ contract AutoRollVault is SomniaEventHandler {
         bytes32 asset; // keccak256(bytes(market.asset)), e.g. "BTC"
         bool up; // the side the user is expressing
         uint256 principal; // collateral originally deposited
-        uint256 stake; // current working balance
+        uint256 bankroll; // collateral held and not currently committed
+        uint256 atRisk; // collateral committed to the window in `_inMarket`
         uint32 rolls;
         uint32 losses;
         bool active;
@@ -210,9 +221,12 @@ contract AutoRollVault is SomniaEventHandler {
             }
             uint256 proceeds = collateral.balanceOf(address(this)) - before;
 
-            if (proceeds < p.stake) p.losses += 1;
-            else p.losses = 0;
-            p.stake = p.policy.compound ? proceeds : p.principal;
+            // The stake left the bankroll when the order was placed; whatever the
+            // window returns comes back in. A loss costs the stake, not the position.
+            uint256 staked = p.atRisk;
+            p.bankroll += proceeds;
+            p.atRisk = 0;
+            p.losses = proceeds < staked ? p.losses + 1 : 0;
             p.rolls += 1;
 
             string memory stop = _stopReason(p);
@@ -244,12 +258,17 @@ contract AutoRollVault is SomniaEventHandler {
             Position storage p = positions[ids[i]];
             if (!p.active || p.asset != asset) continue;
 
+            uint256 stake = _nextStake(p);
+            if (stake == 0) continue;
+
             // Prices are Up probabilities. A Down bid is expressed as a bid on the
             // same book read from the other side, hence the 1e18 complement.
             uint256 priceWad = p.up ? p.policy.maxPriceWad : 1e18 - p.policy.maxPriceWad;
-            uint256 quantity = (p.stake * 1e18) / priceWad;
+            uint256 quantity = (stake * 1e18) / priceWad;
 
-            collateral.approve(pool, p.stake);
+            p.bankroll -= stake;
+            p.atRisk = stake;
+            collateral.approve(pool, stake);
             // Gotcha #5: expiry is mandatory and capped at the window's own expiry —
             // it doubles as the dead-man's switch if a roll never fills.
             IBinaryPool(pool).placeOrder(
@@ -265,26 +284,33 @@ contract AutoRollVault is SomniaEventHandler {
             );
 
             _inMarket[marketId].push(ids[i]);
-            emit PositionRolled(ids[i], marketId, p.stake, p.rolls);
+            emit PositionRolled(ids[i], marketId, stake, p.rolls);
         }
         delete _pending[asset];
+    }
+
+    /// What the next window should cost, given the policy and where we stand.
+    function _nextStake(Position storage p) internal view returns (uint256) {
+        uint256 base = p.policy.compound ? p.bankroll : p.principal;
+        uint256 size = (base * p.policy.sizeBps) / 10_000;
+        return size > p.bankroll ? p.bankroll : size;
     }
 
     function _stopReason(Position storage p) internal view returns (string memory) {
         if (p.policy.maxRolls != 0 && p.rolls >= p.policy.maxRolls) return "max-rolls";
         if (p.policy.maxLosses != 0 && p.losses >= p.policy.maxLosses) return "stop-loss";
-        if (p.stake == 0) return "wiped";
+        if (_nextStake(p) == 0) return "wiped";
         if (
             p.policy.takeProfitBps != 0
-                && p.stake >= p.principal + (p.principal * p.policy.takeProfitBps) / 10_000
+                && p.bankroll >= p.principal + (p.principal * p.policy.takeProfitBps) / 10_000
         ) return "take-profit";
         return "";
     }
 
     function _settle(uint256 id, Position storage p, string memory reason) internal {
         p.active = false;
-        uint256 payout = p.stake;
-        p.stake = 0;
+        uint256 payout = p.bankroll;
+        p.bankroll = 0;
         if (payout > 0) collateral.transfer(p.user, payout);
         emit PositionClosed(id, p.user, payout, reason);
     }
@@ -321,7 +347,8 @@ contract AutoRollVault is SomniaEventHandler {
             asset: asset,
             up: up,
             principal: stake,
-            stake: stake,
+            bankroll: stake,
+            atRisk: 0,
             rolls: 0,
             losses: 0,
             active: true,

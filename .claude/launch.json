@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "autoroll-api", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "/Users/finisher/Documents/github/autoroll", "run", "dev:api"], "port": 5183 },
+    { "name": "autoroll-app", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "/Users/finisher/Documents/github/autoroll/app", "run", "dev"], "port": 5184 }
+  ]
+}
