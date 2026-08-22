@@ -10,7 +10,8 @@
     "markets": "tsx src/discover.ts",
     "roll": "tsx src/roller.ts",
     "dev:api": "tsx src/server.ts",
-    "dev:app": "npm --prefix app run dev"
+    "dev:app": "npm --prefix app run dev",
+    "demo": "node scripts/demo.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
