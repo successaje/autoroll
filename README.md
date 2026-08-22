@@ -96,15 +96,56 @@ edge, because the venue's fees really are zero.
 ## Layout
 
 ```
-contracts/src/AutoRollVault.sol      the handler + vault
+contracts/src/AutoRollVault.sol      the on-chain handler + vault
 contracts/src/interfaces/            BinaryMarketsModule, BinaryPool, ERC-6909
 contracts/script/Deploy.s.sol        deploy, fund, subscribe
+src/policy.ts                        Policy + stopReason — mirrors the Solidity exactly
+src/windows.ts                       window discovery (honours gotchas #1/#9/#12/#13)
+src/roller.ts                        the off-chain roller
+src/state.ts                         restart-safe position book
 src/config.ts                        Shannon wiring, verified topic0s
-src/discover.ts                      window discovery (honours gotchas #1/#9/#12/#13)
 scripts/probe-reactivity.mjs         validation #1–#3
 scripts/decode-logs.mjs              validation #4–#5
 scripts/verify-decoder.mjs           validation #6
 ```
+
+## The off-chain roller
+
+The same state machine as the vault, driven from the Bot Kit surface instead of a
+reactivity subscription. It exists for two reasons: it runs **today**, without the
+32 STT the vault needs to subscribe; and it is the honest baseline the vault is
+measured against — identical policy and stop conditions, but a polling loop rather
+than an in-block callback.
+
+`src/policy.ts` is shared ground: `Policy` and `stopReason()` are kept
+byte-for-byte equivalent to `AutoRollVault.Policy` and `_stopReason`, so both
+engines make the same decision on the same position.
+
+```bash
+npx tsx src/roller.ts --open BTC:up:25 --cadence 60          # dry run, no key needed
+npx tsx src/roller.ts --open ETH:down:10 --streak --live     # signs and trades
+```
+
+Dry run reads real books and real resolutions off Shannon and simulates only the
+fill, so the loop is demonstrable without a funded key. A real session:
+
+```
+11:28:39  opened #1  BTC UP  stake 25.000
+11:28:48  #1 skip BTC @ 0.994 — over maxPrice 0.65
+11:29:00  #1 no fillable size on BTC-7692718-22AUG26-1129/tUSDC#YES — waiting for the next window
+11:29:10  #1 entered BTC-7694325-22AUG26-1130 UP @ 0.649  size 38.520  (58s to expiry)
+11:30:13  #1 roll 1  WON   25.000 → 38.520  (streak 1/1)
+11:30:13  #1 entered BTC-7697195-22AUG26-1131 UP @ 0.264  size 145.909  (59s to expiry)
+11:31:02  #1 roll 2  LOST  38.520 → 0.000  (streak 1/2)
+11:31:02  #1 CLOSED (wiped) — 25.000 in, 0.000 out
+```
+
+Two windows in under three minutes, one compounding win and one wipe, with the
+`maxPrice` guard and the illiquid-window skip both firing on the way. That is the
+demo video, and it needs no faucet.
+
+`--cadence` selects the series: the venue runs 60s, 300s, 900s, 3600s and 14400s
+feeds on BTC and ETH concurrently.
 
 ## Gotchas honoured
 
