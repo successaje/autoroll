@@ -42,6 +42,17 @@ off a docs page.
 | 6 | `_decodeAsset`'s hand-rolled offset read is correct | 10/10 live `MarketCreated` logs decode to `"BTC"` / `"ETH"` |
 | 7 | The SDK reads live markets end-to-end | 12 live Trading windows discovered; short feeds roll on a **60-second** cadence |
 | 8 | The vault compiles | `forge build` clean (solc 0.8.30, `via_ir`) |
+| 9 | The vault works against the **real** deployed module | 7 fork tests pass against live Shannon — custody, `openPosition`, keeper no-ops, owner-only close, the 32-token revert, empty curve |
+| 10 | The wallet read path decodes a real vault | Deployed to an anvil fork, seeded, and `readPositions` / `readBalance` / `readHistory` returned correct values through the app's own modules |
+
+```bash
+forge test --root contracts --fork-url https://api.infra.testnet.somnia.network/
+```
+
+Not yet verified: the injected-wallet handshake itself (`eth_requestAccounts`,
+`wallet_addEthereumChain`, and the two signatures). That needs a browser
+extension driving a funded key, so it is the one part of the wallet path that has
+been written but not exercised.
 
 Reproduce:
 
@@ -129,10 +140,43 @@ checks pass on this surface); win and loss are never encoded as a red/green pair
 which would fail CVD separation, so the curve's own direction carries it and the
 feed carries the word.
 
-The UI talks to the roller's HTTP surface rather than to chain directly. That is
-the demo seam: in production the browser signs `openPosition` against
-`AutoRollVault` and reads positions off chain, but routing through the roller
-makes the whole product demonstrable before the vault has its 32 STT.
+### Two modes, one UI
+
+Set `VITE_VAULT_ADDRESS` and the app drives a deployed vault from the user's
+wallet: connect (it adds Shannon if the wallet doesn't know it), approve once,
+sign `openPosition` once, and then read positions, equity and the bankroll curve
+straight off chain. Leave it unset and the same screens drive the off-chain
+roller instead — which is how the demo runs before the vault is deployed.
+
+The wallet surface is deliberately tiny: a direct EIP-1193 binding, no connector
+library, no modal. The product's whole claim is that you sign once and walk away,
+so the wallet should be the least interesting part of it. The allowance is checked
+before approving, so a returning user signs once rather than twice.
+
+## Reactivity is the fast path, not the only path
+
+A subscription needs 32 STT, which is a real gate on a faucet. So the vault also
+exposes `pokeFinalized(marketId)` and `pokeCreated(marketId, asset)` —
+permissionless entries that drive **exactly the same internals** as the reactive
+handler from an ordinary transaction.
+
+That means the vault is fully functional before it is ever subscribed, and after
+it is subscribed they stay useful as the backstop for a handler that ran out of
+gas or lost its queue slot. Both are cheap no-ops on a market the vault holds no
+position in, which matters because a keeper sweeping the venue calls them
+constantly.
+
+## Somnia's log window is 100 seconds
+
+The bankroll curve was originally read from `PositionSettled` logs, which is what
+you would do on any other chain. It does not work here: Somnia caps
+`eth_getLogs` at **1000 blocks**, and at 100ms blocks that is 100 seconds of
+history. A position rolling for an hour sits 36,000 blocks deep, so log-backed
+history would need dozens of paged requests and the count would keep growing.
+
+The vault keeps a **bounded 32-point ring** of `bankroll << 1 | won` instead —
+one SSTORE per roll, never grows, and `curveOf(id)` answers the whole chart in a
+single `eth_call`. `PositionSettled` is still emitted for indexers.
 
 ## Sizing: why a fraction, not the whole bankroll
 

@@ -14,7 +14,15 @@ const ASSETS = ["BTC", "ETH"];
  *  view, pick how long to let it ride, tap once. Everything after that happens
  *  without the user.
  */
-export function OpenCard({ onOpen, busy }: { onOpen: (r: OpenRequest) => void; busy: boolean }) {
+export function OpenCard({
+  onOpen,
+  busy,
+  step,
+}: {
+  onOpen: (r: OpenRequest) => void;
+  busy: boolean;
+  step?: string | null;
+}) {
   const [asset, setAsset] = useState("BTC");
   const [up, setUp] = useState<boolean | null>(null);
   const [stake, setStake] = useState("25");
@@ -93,7 +101,7 @@ export function OpenCard({ onOpen, busy }: { onOpen: (r: OpenRequest) => void; b
         disabled={!ready || busy}
         onClick={() => ready && onOpen({ asset, up: up!, stake: amount, streak })}
       >
-        {up === null ? "Pick a side" : `Roll ${asset} ${up ? "Up" : "Down"} · ${stake || "0"} tUSDC`}
+        {busy && step ? step : up === null ? "Pick a side" : `Roll ${asset} ${up ? "Up" : "Down"} · ${stake || "0"} tUSDC`}
       </button>
     </section>
   );

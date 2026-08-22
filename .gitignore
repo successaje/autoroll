@@ -7,3 +7,4 @@ contracts/broadcast/
 .autoroll-state.json
 app/node_modules/
 app/dist/
+.env.local

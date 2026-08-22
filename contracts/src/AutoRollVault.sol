@@ -45,6 +45,17 @@ contract AutoRollVault is SomniaEventHandler {
 
     event PositionOpened(uint256 indexed id, address indexed user, bytes32 asset, bool up, uint256 stake);
     event PositionRolled(uint256 indexed id, bytes32 indexed marketId, uint256 staked, uint32 rolls);
+    /// Emitted once per finished window. Carries everything a client needs to
+    /// draw the bankroll curve and narrate the roll, so the UI reads logs rather
+    /// than reconstructing history from storage.
+    event PositionSettled(
+        uint256 indexed id,
+        bytes32 indexed marketId,
+        uint256 staked,
+        uint256 returned,
+        uint256 bankroll,
+        bool won
+    );
     event PositionClosed(uint256 indexed id, address indexed user, uint256 payout, string reason);
     event Subscribed(uint256 finalizedSubId, uint256 createdSubId);
 
@@ -105,6 +116,22 @@ contract AutoRollVault is SomniaEventHandler {
 
     uint256 public nextPositionId = 1;
     mapping(uint256 => Position) public positions;
+
+    /**
+     *  A bounded ring of recent bankroll points, so a client can draw the curve
+     *  in ONE eth_call.
+     *
+     *  The obvious design is to read `PositionSettled` logs instead — but Somnia
+     *  caps `eth_getLogs` at 1000 blocks, and at 100ms blocks that is 100 seconds
+     *  of history. A position that has been rolling for an hour is 36,000 blocks
+     *  deep, so log-backed history would need dozens of paged requests and would
+     *  keep growing. A fixed ring costs one SSTORE per roll, never grows, and
+     *  answers in a single call.
+     *
+     *  Each slot packs `bankroll << 1 | won`.
+     */
+    uint256 public constant CURVE_POINTS = 32;
+    mapping(uint256 => uint256[CURVE_POINTS]) internal _curve;
 
     /// marketId => position ids currently exposed to that window.
     mapping(bytes32 => uint256[]) internal _inMarket;
@@ -193,8 +220,33 @@ contract AutoRollVault is SomniaEventHandler {
         if (eventTopics[0] == TOPIC_MARKET_FINALIZED) {
             _harvest(marketId);
         } else if (eventTopics[0] == TOPIC_MARKET_CREATED) {
-            _enter(marketId, data);
+            _enter(marketId, _assetOf(data));
         }
+    }
+
+    // -------------------------------------------------------- keeper entries
+
+    /**
+     *  Reactivity is the *fast* path, not the only one.
+     *
+     *  A subscription needs its owner to hold 32 native tokens at creation, which
+     *  is a real gate on a testnet faucet. These two entries drive exactly the same
+     *  internals from an ordinary transaction, so the vault is fully functional
+     *  before it is ever subscribed — and afterwards they stay useful as the
+     *  backstop for a handler that ran out of gas or lost its queue slot.
+     *
+     *  Both are permissionless and idempotent: a market with no position of ours
+     *  in it is a couple of SLOADs and a return.
+     */
+    function pokeFinalized(bytes32 marketId) external {
+        _harvest(marketId);
+    }
+
+    /// @param asset `keccak256(bytes(market.asset))` — the caller supplies it because
+    ///        the reactive path gets it free from the log and a keeper can read it
+    ///        off the indexer just as cheaply as this contract could re-derive it.
+    function pokeCreated(bytes32 marketId, bytes32 asset) external {
+        _enter(marketId, asset);
     }
 
     // ------------------------------------------------------------- internals
@@ -228,6 +280,9 @@ contract AutoRollVault is SomniaEventHandler {
             p.atRisk = 0;
             p.losses = proceeds < staked ? p.losses + 1 : 0;
             p.rolls += 1;
+            bool won_ = proceeds >= staked;
+            _curve[ids[i]][(p.rolls - 1) % CURVE_POINTS] = (p.bankroll << 1) | (won_ ? 1 : 0);
+            emit PositionSettled(ids[i], marketId, staked, proceeds, p.bankroll, won_);
 
             string memory stop = _stopReason(p);
             if (bytes(stop).length != 0) {
@@ -242,11 +297,7 @@ contract AutoRollVault is SomniaEventHandler {
     /// Rest a bid for every position waiting on this asset's next window.
     /// A resting Up bid crosses a resting Down bid via the venue's mint-a-pair
     /// path, so a fresh window fills with no seller and no inventory.
-    function _enter(bytes32 marketId, bytes calldata data) internal {
-        // MarketCreated's non-indexed tail: oracleQuestionId, operatorId, venueId,
-        // creator, collateral, yesId, noId, nonce, outcomeSlotCount, marketType,
-        // tradingStart, expiry, voidPolicy, asset, strike, question, context.
-        bytes32 asset = _decodeAsset(data);
+    function _enter(bytes32 marketId, bytes32 asset) internal {
         uint256[] storage ids = _pending[asset];
         if (ids.length == 0) return;
 
@@ -324,7 +375,7 @@ contract AutoRollVault is SomniaEventHandler {
     /// for this on every market the venue creates, so it stays O(1).
     uint256 private constant ASSET_WORD = 13;
 
-    function _decodeAsset(bytes calldata data) internal pure returns (bytes32) {
+    function _assetOf(bytes calldata data) internal pure returns (bytes32) {
         if (data.length < (ASSET_WORD + 1) * 32) return bytes32(0);
         uint256 off = uint256(bytes32(data[ASSET_WORD * 32:(ASSET_WORD + 1) * 32]));
         if (off + 32 > data.length) return bytes32(0);
@@ -365,6 +416,52 @@ contract AutoRollVault is SomniaEventHandler {
         require(p.user == msg.sender && p.active, NoSuchPosition());
         p.policy.maxRolls = p.rolls; // stop at the next harvest
         emit PositionClosed(id, p.user, 0, "user-stop");
+    }
+
+    /// @notice Every position id belonging to `user`, for the UI to page over.
+    ///         Unbounded by design — this is a `view`, never called on-chain.
+    function positionsOf(address user) external view returns (uint256[] memory ids) {
+        uint256 n;
+        for (uint256 i = 1; i < nextPositionId; ++i) {
+            if (positions[i].user == user) ++n;
+        }
+        ids = new uint256[](n);
+        uint256 j;
+        for (uint256 i = 1; i < nextPositionId; ++i) {
+            if (positions[i].user == user) ids[j++] = i;
+        }
+    }
+
+    /**
+     *  @notice The retained bankroll curve, oldest point first.
+     *  @return bankrolls Bankroll after each retained roll.
+     *  @return won       Whether that roll returned at least what it staked.
+     *  @return firstRoll The roll number `bankrolls[0]` corresponds to (1-based),
+     *                    so a client can tell a trimmed curve from a full one.
+     */
+    function curveOf(uint256 id)
+        external
+        view
+        returns (uint256[] memory bankrolls, bool[] memory won, uint256 firstRoll)
+    {
+        uint256 rolls = positions[id].rolls;
+        uint256 n = rolls < CURVE_POINTS ? rolls : CURVE_POINTS;
+        bankrolls = new uint256[](n);
+        won = new bool[](n);
+        firstRoll = rolls - n + 1;
+
+        for (uint256 i = 0; i < n; ++i) {
+            uint256 packed = _curve[id][(firstRoll - 1 + i) % CURVE_POINTS];
+            bankrolls[i] = packed >> 1;
+            won[i] = packed & 1 == 1;
+        }
+    }
+
+    /// @notice Total equity of a position — idle bankroll plus whatever is
+    ///         committed to a live window. What the UI puts on the hero line.
+    function equityOf(uint256 id) external view returns (uint256) {
+        Position storage p = positions[id];
+        return p.bankroll + p.atRisk;
     }
 
     function sweep(address token, uint256 amount) external onlyOwner {

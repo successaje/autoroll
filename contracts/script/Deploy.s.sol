@@ -5,11 +5,12 @@ import {Script, console} from "forge-std/Script.sol";
 import {AutoRollVault} from "../src/AutoRollVault.sol";
 
 /**
- *  Deploy + subscribe on Shannon (50312).
+ *  Deploy on Shannon (50312), and subscribe if the deployer can fund it.
  *
- *  The vault is its own reactivity subscription owner, so the deployer must send it
- *  >= 32 STT before `subscribeAll` — that is a protocol-level sybil gate, not a fee:
- *  the 32 is never consumed, it just has to be sitting there at subscribe time.
+ *  Deployment needs nothing but gas. The reactivity subscription needs the vault
+ *  to hold >= 32 STT — a protocol sybil gate, never consumed — so the script
+ *  deploys either way and only wires reactivity when the funds are actually
+ *  there. Until then the vault runs off its permissionless `poke*` entries.
  *
  *    forge script script/Deploy.s.sol --rpc-url shannon --broadcast
  */
@@ -26,14 +27,17 @@ contract Deploy is Script {
         AutoRollVault vault = new AutoRollVault(BINARY_MODULE, OUTCOME_TOKEN, TEST_USDC);
         console.log("AutoRollVault:", address(vault));
 
-        vault.fundReactivity{value: REACTIVITY_FUNDING}();
-        (uint256 finalizedSub, uint256 createdSub) = vault.subscribeAll(
-            10_000_000, // gasLimit per handler invocation
-            0, // priorityFeePerGas
-            20 gwei // maxFeePerGas
-        );
-        console.log("sub(MarketFinalized):", finalizedSub);
-        console.log("sub(MarketCreated):", createdSub);
+        if (msg.sender.balance >= REACTIVITY_FUNDING) {
+            vault.fundReactivity{value: REACTIVITY_FUNDING}();
+            (uint256 finalizedSub, uint256 createdSub) =
+                vault.subscribeAll(10_000_000, 0, 20 gwei);
+            console.log("sub(MarketFinalized):", finalizedSub);
+            console.log("sub(MarketCreated):", createdSub);
+        } else {
+            console.log("Deployed WITHOUT reactivity - deployer holds less than 33 STT.");
+            console.log("Fund the vault and call subscribeAll(); until then, drive it with");
+            console.log("pokeFinalized/pokeCreated (the roller does this automatically).");
+        }
 
         vm.stopBroadcast();
     }
