@@ -1,0 +1,23 @@
+{
+  "name": "autoroll",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Synthetic perpetual event contracts on DreamDEX (Somnia)",
+  "scripts": {
+    "probe:reactivity": "node scripts/probe-reactivity.mjs",
+    "probe:logs": "node scripts/decode-logs.mjs",
+    "markets": "tsx src/discover.ts",
+    "roll": "tsx src/roller.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@somnia-chain/markets-sdk": "^0.28.1",
+    "@somnia-chain/reactivity-contracts": "^0.2.1",
+    "viem": "^2.55.19"
+  }
+}

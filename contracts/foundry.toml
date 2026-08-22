@@ -1,0 +1,16 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["/Users/finisher/Documents/github/autoroll/node_modules", "lib"]
+solc = "0.8.30"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+evm_version = "cancun"
+remappings = [
+  "@somnia-chain/reactivity-contracts/=../node_modules/@somnia-chain/reactivity-contracts/",
+  "forge-std/=lib/forge-std/src/",
+]
+
+[rpc_endpoints]
+shannon = "https://api.infra.testnet.somnia.network/"
