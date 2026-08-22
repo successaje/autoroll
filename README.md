@@ -166,6 +166,37 @@ gas or lost its queue slot. Both are cheap no-ops on a market the vault holds no
 position in, which matters because a keeper sweeping the venue calls them
 constantly.
 
+## Four fund-loss defects, and what they were
+
+Found by auditing the vault after the off-chain path was working. All four are
+fixed with regression tests; they are recorded here because each one is a trap
+that this venue's shape makes easy to walk into.
+
+**Redeeming a shared balance.** `_harvest` read
+`outcomeToken.balanceOf(vault, yesId)` — the vault's *total* holding for that
+outcome across every position in the window. The first position in the array
+redeemed everything and the rest were recorded as losses. Outcome tokens are an
+ERC-6909 singleton keyed by outcome, not by holder, so a per-position `quantity`
+is the only correct source. Fixed by measuring the real fill at entry and
+redeeming exactly that.
+
+**Truncating the queue.** Both loops cap at `MAX_ROLLS_PER_EVENT` and then used
+to `delete` the whole queue, so every position past the 16th vanished — still
+active, funds still in the vault, nothing left pointing at them. The queues now
+compact instead, keeping the untouched tail for the next (permissionless,
+idempotent) poke.
+
+**Booking an unfilled order as a wipe.** A resting limit order that never fills
+leaves escrow in the pool that the vault cannot attribute back to one position
+when the window expires, so the roll settled as a total loss while the money sat
+elsewhere. Entry is now **IOC**: it either fills immediately or commits nothing,
+and the position charges what was actually spent rather than the requested stake.
+
+**Stranding a position closed between windows.** `closePosition` set
+`maxRolls = rolls` and waited for a harvest — but a position sitting in the
+pending queue is committed to no market, so nothing would ever finalize and the
+bankroll was locked forever. It now pays out on the spot when `atRisk == 0`.
+
 ## Somnia's log window is 100 seconds
 
 The bankroll curve was originally read from `PositionSettled` logs, which is what

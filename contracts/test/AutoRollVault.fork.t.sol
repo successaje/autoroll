@@ -69,8 +69,9 @@ contract AutoRollVaultForkTest is Test {
         assertEq(IERC20(TEST_USDC).balanceOf(user), 0, "collateral left the wallet");
         assertEq(IERC20(TEST_USDC).balanceOf(address(vault)), 100e6, "vault holds it");
 
-        (address owner_,,, uint256 principal, uint256 bankroll, uint256 atRisk,,, bool active,) =
-            vault.positions(id);
+        (address owner_,,, uint256 principal, uint256 bankroll, uint256 atRisk, uint256 quantity,,, bool active,)
+        = vault.positions(id);
+        assertEq(quantity, 0, "no outcome tokens until a window fills");
         assertEq(owner_, user);
         assertEq(principal, 100e6);
         assertEq(bankroll, 100e6, "all of it idle until a window opens");
@@ -106,7 +107,7 @@ contract AutoRollVaultForkTest is Test {
         // Pending on BTC; a poke naming ETH must leave it pending.
         vault.pokeCreated(keccak256("not-a-real-market"), keccak256("ETH"));
 
-        (,,,, uint256 bankroll, uint256 atRisk,,,,) = vault.positions(id);
+        (,,,, uint256 bankroll, uint256 atRisk,,,,,) = vault.positions(id);
         assertEq(bankroll, 50e6);
         assertEq(atRisk, 0, "still waiting for a BTC window");
     }
@@ -124,6 +125,90 @@ contract AutoRollVaultForkTest is Test {
 
         vm.prank(user);
         vault.closePosition(id);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                          FUND-LOSS REGRESSIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// A position closed BETWEEN windows used to set `maxRolls = rolls` and wait
+    /// for a harvest that could never come — nothing was committed, so nothing
+    /// would ever finalize, and the bankroll stayed locked in the vault forever.
+    function test_closeBetweenWindowsPaysOutImmediately() public {
+        _fund(user, 80e6);
+        vm.startPrank(user);
+        IERC20(TEST_USDC).approve(address(vault), 80e6);
+        uint256 id = vault.openPosition(BTC, true, 80e6, _policy());
+
+        assertEq(IERC20(TEST_USDC).balanceOf(user), 0, "custody taken");
+        vault.closePosition(id);
+        vm.stopPrank();
+
+        assertEq(IERC20(TEST_USDC).balanceOf(user), 80e6, "refunded on the spot");
+        (,,,, uint256 bankroll,,,,, bool active,) = vault.positions(id);
+        assertEq(bankroll, 0);
+        assertFalse(active, "closed, not left dangling");
+    }
+
+    /// …and it must be removed from the pending queue, or the next window would
+    /// try to enter a closed position.
+    function test_closedPositionLeavesThePendingQueue() public {
+        _fund(user, 60e6);
+        vm.startPrank(user);
+        IERC20(TEST_USDC).approve(address(vault), 60e6);
+        uint256 id = vault.openPosition(BTC, true, 60e6, _policy());
+        vault.closePosition(id);
+        vm.stopPrank();
+
+        assertEq(vault.pendingCount(BTC), 0, "dropped from the queue");
+    }
+
+    /// The batch cap used to be followed by an unconditional `delete` of the
+    /// whole queue, so every position past the 16th vanished — still active,
+    /// funds still in the vault, and nothing left pointing at them.
+    function test_pendingQueueSurvivesTheBatchCap() public {
+        uint256 count = vault.MAX_ROLLS_PER_EVENT() + 5;
+
+        for (uint256 i = 0; i < count; ++i) {
+            address who = address(uint160(0x1000 + i));
+            _fund(who, 10e6);
+            vm.startPrank(who);
+            IERC20(TEST_USDC).approve(address(vault), 10e6);
+            vault.openPosition(BTC, true, 10e6, _policy());
+            vm.stopPrank();
+        }
+        assertEq(vault.pendingCount(BTC), count);
+
+        // A poke naming a market that is not ours enters nobody, so the queue
+        // must come back untouched rather than truncated to the cap.
+        vault.pokeCreated(keccak256("no-such-market"), BTC);
+        assertEq(vault.pendingCount(BTC), count, "nobody dropped");
+    }
+
+    /// Two positions on the same side of the same window must each redeem their
+    /// OWN tokens. `quantity` is per position for exactly this reason — reading
+    /// the vault's shared ERC-6909 balance paid the first one everything.
+    function test_quantityIsTrackedPerPosition() public {
+        address a = makeAddr("a");
+        address b = makeAddr("b");
+        _fund(a, 30e6);
+        _fund(b, 30e6);
+
+        vm.startPrank(a);
+        IERC20(TEST_USDC).approve(address(vault), 30e6);
+        uint256 idA = vault.openPosition(BTC, true, 30e6, _policy());
+        vm.stopPrank();
+
+        vm.startPrank(b);
+        IERC20(TEST_USDC).approve(address(vault), 30e6);
+        uint256 idB = vault.openPosition(BTC, true, 30e6, _policy());
+        vm.stopPrank();
+
+        (,,,,,, uint256 qA,,,,) = vault.positions(idA);
+        (,,,,,, uint256 qB,,,,) = vault.positions(idB);
+        assertEq(qA, 0);
+        assertEq(qB, 0);
+        assertTrue(idA != idB, "separate positions, separate holdings");
     }
 
     /// An unrolled position has an empty curve, and the call must not revert —

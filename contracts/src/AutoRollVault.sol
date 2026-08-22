@@ -3,7 +3,13 @@ pragma solidity 0.8.30;
 
 import {SomniaEventHandler} from "@somnia-chain/reactivity-contracts/contracts/SomniaEventHandler.sol";
 import {SomniaExtensions} from "@somnia-chain/reactivity-contracts/contracts/interfaces/SomniaExtensions.sol";
-import {IBinaryMarketsModule, IBinaryPool, IOutcomeToken6909, IERC20} from "./interfaces/IDreamDex.sol";
+import {
+    IBinaryMarketsModule,
+    IBinaryPool,
+    IOutcomeToken6909,
+    IERC20,
+    IERC20Meta
+} from "./interfaces/IDreamDex.sol";
 
 /**
  *  @title  AutoRollVault
@@ -57,6 +63,12 @@ contract AutoRollVault is SomniaEventHandler {
         bool won
     );
     event PositionClosed(uint256 indexed id, address indexed user, uint256 payout, string reason);
+    /// The user asked to stop while funds were still committed to a live window.
+    /// The position is paid out when that window finalizes.
+    event PositionStopRequested(uint256 indexed id, address indexed user);
+    /// A window opened but nothing crossed at our limit; the stake is untouched
+    /// and the position stays queued for the next one.
+    event RollSkipped(uint256 indexed id, bytes32 indexed marketId, string reason);
     event Subscribed(uint256 finalizedSubId, uint256 createdSubId);
 
     // ------------------------------------------------------- module wiring
@@ -107,7 +119,16 @@ contract AutoRollVault is SomniaEventHandler {
         bool up; // the side the user is expressing
         uint256 principal; // collateral originally deposited
         uint256 bankroll; // collateral held and not currently committed
-        uint256 atRisk; // collateral committed to the window in `_inMarket`
+        uint256 atRisk; // collateral actually spent on the window in `_inMarket`
+        /**
+         *  Outcome tokens THIS position holds in the window it is exposed to.
+         *
+         *  Not derivable from `outcomeToken.balanceOf(vault, id)`: that is the
+         *  vault's total across every position in the same window, so redeeming
+         *  it would pay the first position in the array everything and record a
+         *  loss for everyone else holding the same side.
+         */
+        uint256 quantity;
         uint32 rolls;
         uint32 losses;
         bool active;
@@ -257,15 +278,17 @@ contract AutoRollVault is SomniaEventHandler {
         uint256[] storage ids = _inMarket[marketId];
         if (ids.length == 0) return; // not ours — cheap exit, this is the common case
 
-        (,,,, uint32 operatorId, bytes32 venueId,,,,, uint256 yesId, uint256 noId,,) = module.markets(marketId);
+        (,,,, uint32 operatorId, bytes32 venueId,,,,,,,,) = module.markets(marketId);
 
-        uint256 n = ids.length < MAX_ROLLS_PER_EVENT ? ids.length : MAX_ROLLS_PER_EVENT;
+        uint256 total = ids.length;
+        uint256 n = total < MAX_ROLLS_PER_EVENT ? total : MAX_ROLLS_PER_EVENT;
         for (uint256 i = 0; i < n; ++i) {
             Position storage p = positions[ids[i]];
             if (!p.active) continue;
 
             uint8 outcomeIdx = p.up ? 0 : 1;
-            uint256 held = outcomeToken.balanceOf(address(this), p.up ? yesId : noId);
+            // Exactly this position's tokens — never the vault's shared balance.
+            uint256 held = p.quantity;
             uint256 before = collateral.balanceOf(address(this));
             if (held > 0) {
                 // Losing redemptions pay 0 and do not revert (gotcha #11).
@@ -278,6 +301,7 @@ contract AutoRollVault is SomniaEventHandler {
             uint256 staked = p.atRisk;
             p.bankroll += proceeds;
             p.atRisk = 0;
+            p.quantity = 0;
             p.losses = proceeds < staked ? p.losses + 1 : 0;
             p.rolls += 1;
             bool won_ = proceeds >= staked;
@@ -291,7 +315,26 @@ contract AutoRollVault is SomniaEventHandler {
                 _pending[p.asset].push(ids[i]);
             }
         }
-        delete _inMarket[marketId];
+
+        // Keep whatever the batch cap left behind. Blanket-deleting the queue
+        // here would strand every position past the cap: still active, funds
+        // still committed, and nothing left pointing at the market they are in.
+        // `pokeFinalized` is permissionless and idempotent, so a second call
+        // drains the remainder.
+        _compact(ids, n, total);
+    }
+
+    /// Drop the first `processed` entries, keeping the untouched tail.
+    function _compact(uint256[] storage ids, uint256 processed, uint256 total) private {
+        if (processed == total) {
+            while (ids.length > 0) ids.pop();
+            return;
+        }
+        uint256 kept;
+        for (uint256 i = processed; i < total; ++i) {
+            ids[kept++] = ids[i];
+        }
+        while (ids.length > kept) ids.pop();
     }
 
     /// Rest a bid for every position waiting on this asset's next window.
@@ -301,43 +344,102 @@ contract AutoRollVault is SomniaEventHandler {
         uint256[] storage ids = _pending[asset];
         if (ids.length == 0) return;
 
-        (,,, address mktCollateral,,,,,, address pool,,, , uint64 expiry) = module.markets(marketId);
+        (,,, address mktCollateral,,,,,, address pool, uint256 yesId, uint256 noId,, uint64 expiry) =
+            module.markets(marketId);
         if (mktCollateral != address(collateral) || pool == address(0)) return;
 
-        uint256 n = ids.length < MAX_ROLLS_PER_EVENT ? ids.length : MAX_ROLLS_PER_EVENT;
-        for (uint256 i = 0; i < n; ++i) {
-            Position storage p = positions[ids[i]];
-            if (!p.active || p.asset != asset) continue;
+        uint256 total = ids.length;
+        uint256 limit = total < MAX_ROLLS_PER_EVENT ? total : MAX_ROLLS_PER_EVENT;
+        uint256 kept;
 
-            uint256 stake = _nextStake(p);
-            if (stake == 0) continue;
-
-            // Prices are Up probabilities. A Down bid is expressed as a bid on the
-            // same book read from the other side, hence the 1e18 complement.
-            uint256 priceWad = p.up ? p.policy.maxPriceWad : 1e18 - p.policy.maxPriceWad;
-            uint256 quantity = (stake * 1e18) / priceWad;
-
-            p.bankroll -= stake;
-            p.atRisk = stake;
-            collateral.approve(pool, stake);
-            // Gotcha #5: expiry is mandatory and capped at the window's own expiry —
-            // it doubles as the dead-man's switch if a roll never fills.
-            IBinaryPool(pool).placeOrder(
-                p.up, // isBid on the Up book
-                uint64(ids[i]), // userData: our position id, for attribution
-                priceWad,
-                quantity,
-                uint64(expiry) * 1e9, // expireTimestampNs
-                0, // orderType: LIMIT
-                0, // selfMatchingOption: default
-                address(0), // no builder
-                0
-            );
-
-            _inMarket[marketId].push(ids[i]);
-            emit PositionRolled(ids[i], marketId, stake, p.rolls);
+        for (uint256 i = 0; i < limit; ++i) {
+            uint256 id = ids[i];
+            if (_tryEnter(id, marketId, pool, yesId, noId, expiry, asset)) {
+                _inMarket[marketId].push(id);
+            } else {
+                ids[kept++] = id; // nothing committed — stays queued for the next window
+            }
         }
-        delete _pending[asset];
+
+        // Positions past the batch cap were never looked at; keep them queued.
+        for (uint256 i = limit; i < total; ++i) {
+            ids[kept++] = ids[i];
+        }
+        while (ids.length > kept) ids.pop();
+    }
+
+    /// @return entered True when collateral was actually committed to this window.
+    function _tryEnter(
+        uint256 id,
+        bytes32 marketId,
+        address pool,
+        uint256 yesId,
+        uint256 noId,
+        uint64 expiry,
+        bytes32 asset
+    ) private returns (bool entered) {
+        Position storage p = positions[id];
+        if (!p.active || p.asset != asset) return false;
+
+        uint256 stake = _nextStake(p);
+        if (stake == 0) return false;
+
+        uint256 outcomeId = p.up ? yesId : noId;
+        uint256 collBefore = collateral.balanceOf(address(this));
+        uint256 tokBefore = outcomeToken.balanceOf(address(this), outcomeId);
+
+        // Prices are Up probabilities in COLLATERAL units, not wad — the venue
+        // quotes on the collateral's own scale (6dp on testnet, 18dp on mainnet).
+        uint256 one = 10 ** IERC20Meta(address(collateral)).decimals();
+        uint256 limitPrice = (p.policy.maxPriceWad * one) / 1e18;
+        if (!p.up) limitPrice = one - limitPrice;
+        if (limitPrice == 0) return false;
+
+        collateral.approve(pool, stake);
+        // IOC, not a resting limit. A remainder left on the book has escrow the
+        // vault cannot attribute back to one position when the window expires,
+        // which silently books a filled-nothing roll as a total loss. IOC either
+        // fills now or commits nothing at all.
+        IBinaryPool(pool).placeOrder(
+            p.up,
+            uint64(id),
+            limitPrice,
+            (stake * one) / limitPrice,
+            uint64(expiry) * 1e9, // gotcha #5: capped at the window's own expiry
+            2, // ImmediateOrCancel
+            0,
+            address(0),
+            0
+        );
+        collateral.approve(pool, 0);
+
+        uint256 got = outcomeToken.balanceOf(address(this), outcomeId) - tokBefore;
+        if (got == 0) {
+            emit RollSkipped(id, marketId, "no fill at limit");
+            return false;
+        }
+
+        // Charge what was actually spent, never the requested stake — an IOC that
+        // partially fills returns the rest of the escrow in the same call.
+        uint256 spent = collBefore - collateral.balanceOf(address(this));
+        p.bankroll -= spent;
+        p.atRisk = spent;
+        p.quantity = got;
+
+        emit PositionRolled(id, marketId, spent, p.rolls);
+        return true;
+    }
+
+    /// Remove `id` from its asset's pending queue, if it is there.
+    function _dropPending(bytes32 asset, uint256 id) private {
+        uint256[] storage ids = _pending[asset];
+        for (uint256 i = 0; i < ids.length; ++i) {
+            if (ids[i] == id) {
+                ids[i] = ids[ids.length - 1];
+                ids.pop();
+                return;
+            }
+        }
     }
 
     /// What the next window should cost, given the policy and where we stand.
@@ -400,6 +502,7 @@ contract AutoRollVault is SomniaEventHandler {
             principal: stake,
             bankroll: stake,
             atRisk: 0,
+            quantity: 0,
             rolls: 0,
             losses: 0,
             active: true,
@@ -414,8 +517,28 @@ contract AutoRollVault is SomniaEventHandler {
     function closePosition(uint256 id) external {
         Position storage p = positions[id];
         require(p.user == msg.sender && p.active, NoSuchPosition());
-        p.policy.maxRolls = p.rolls; // stop at the next harvest
-        emit PositionClosed(id, p.user, 0, "user-stop");
+
+        // `maxRolls = rolls` alone strands a position that is BETWEEN windows:
+        // it never harvests, so the stop never runs and the bankroll never comes
+        // back. Nothing is committed in that state, so pay out here and now.
+        p.policy.maxRolls = p.rolls == 0 ? 1 : p.rolls;
+
+        if (p.atRisk == 0) {
+            _dropPending(p.asset, id);
+            _settle(id, p, "user-stop");
+        } else {
+            emit PositionStopRequested(id, p.user);
+        }
+    }
+
+    /// @notice How many positions are queued waiting for `asset`'s next window.
+    function pendingCount(bytes32 asset) external view returns (uint256) {
+        return _pending[asset].length;
+    }
+
+    /// @notice How many positions are currently exposed to `marketId`.
+    function inMarketCount(bytes32 marketId) external view returns (uint256) {
+        return _inMarket[marketId].length;
     }
 
     /// @notice Every position id belonging to `user`, for the UI to page over.

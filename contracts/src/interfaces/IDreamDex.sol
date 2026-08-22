@@ -50,6 +50,10 @@ interface IOutcomeToken6909 {
     function transfer(address to, uint256 id, uint256 amount) external returns (bool);
 }
 
+interface IERC20Meta {
+    function decimals() external view returns (uint8);
+}
+
 interface IERC20 {
     function approve(address spender, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);

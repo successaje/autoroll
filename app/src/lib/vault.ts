@@ -9,7 +9,8 @@ export const vaultAbi = parseAbi([
   "function positionsOf(address user) view returns (uint256[])",
   "function equityOf(uint256 id) view returns (uint256)",
   "function curveOf(uint256 id) view returns (uint256[] bankrolls, bool[] won, uint256 firstRoll)",
-  "function positions(uint256) view returns (address user, bytes32 asset, bool up, uint256 principal, uint256 bankroll, uint256 atRisk, uint32 rolls, uint32 losses, bool active, Policy policy)",
+  "function positions(uint256) view returns (address user, bytes32 asset, bool up, uint256 principal, uint256 bankroll, uint256 atRisk, uint256 quantity, uint32 rolls, uint32 losses, bool active, Policy policy)",
+  "function pendingCount(bytes32 asset) view returns (uint256)",
   "event PositionOpened(uint256 indexed id, address indexed user, bytes32 asset, bool up, uint256 stake)",
   "event PositionRolled(uint256 indexed id, bytes32 indexed marketId, uint256 staked, uint32 rolls)",
   "event PositionSettled(uint256 indexed id, bytes32 indexed marketId, uint256 staked, uint256 returned, uint256 bankroll, bool won)",
@@ -39,7 +40,7 @@ export async function readPositions(user: `0x${string}`): Promise<Position[]> {
   );
 
   return rows.map((r, i) => {
-    const [, asset, up, principal, bankroll, atRisk, rolls, losses, active, policy] = r;
+    const [, asset, up, principal, bankroll, atRisk, quantity, rolls, losses, active, policy] = r;
     return {
       id: Number(ids[i]),
       asset: ASSET_NAMES[asset.toLowerCase()] ?? "—",
@@ -59,7 +60,7 @@ export async function readPositions(user: `0x${string}`): Promise<Position[]> {
         maxPrice: Number(policy.maxPriceWad) / 1e18,
       },
       marketId: atRisk > 0n ? ("0x" as `0x${string}`) : null,
-      quantity: "0",
+      quantity: quantity.toString(),
       // Storage keeps only the current state; the curve comes from PositionSettled
       // logs, merged in by `readHistory`.
       history: [],
