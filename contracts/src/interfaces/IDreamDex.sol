@@ -53,6 +53,16 @@ interface IBinaryPool {
 
     function cancelOrder(uint128 orderId) external;
 
+    struct Level {
+        uint256 price;
+        uint256 quantity;
+    }
+
+    /// Resting levels on the BASE book, always in YES terms. `isBid = true` are
+    /// the bids a BUY_NO (an ask in YES terms) crosses; `isBid = false` are the
+    /// asks a BUY_YES crosses.
+    function getBookLevels(bool isBid, uint64 numLevels) external view returns (Level[] memory);
+
     struct OrderBookParameters {
         uint256 tickSize;
         uint256 minQuantity;

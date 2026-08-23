@@ -192,6 +192,32 @@ point of that fix.
 
 `scripts/find-fixture.ts` regenerates the pin when the fixture ages out.
 
+### Both sides, and why that needed its own suite
+
+Everything on a binary book is quoted in **YES terms**, so a Down buy at
+probability `q` is an *ask* at `one - q` — it crosses the **bids**, the opposite
+book from an Up buy. That inversion is the easiest place in the whole contract to
+be quietly wrong, because a wrong-side implementation still fills; it just fills
+at the wrong price.
+
+The pinned fixture makes that visible rather than a matter of trust. Its bids top
+out at 0.508 and its asks start at 0.537, so the two sides are separated by a
+real spread:
+
+```
+up   quantity 30769000   spent 16522953   per unit 537000   (crossed the ask)
+down quantity 30769000   spent 15138348   per unit 492000   (crossed the bid, 1 - 0.508)
+```
+
+If the inversion were dropped, `per unit` for Down would come back 537000. The
+suite asserts the exact figure, that the tokens land under `noId` and that `yesId`
+is left at zero, and that both legs can fill out of a single `pokeCreated` with
+each holding its own side.
+
+Sizing is deliberately conservative on both sides: quantity is computed against
+the *limit* price, not the expected fill, so an improved fill spends less than the
+policy allowed and the change stays in the bankroll. It never overspends.
+
 ### Four more defects it caught immediately
 
 Writing this test found four things that eleven passing custody tests had not,
