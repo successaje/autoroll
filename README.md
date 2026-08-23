@@ -153,6 +153,33 @@ library, no modal. The product's whole claim is that you sign once and walk away
 so the wallet should be the least interesting part of it. The allowance is checked
 before approving, so a returning user signs once rather than twice.
 
+## Deploying to Shannon
+
+Three commands. The key never leaves your shell, and never goes on a command line.
+
+```bash
+npx tsx scripts/preflight.ts 0xYourDeployerAddress   # address only, never a key
+export PRIVATE_KEY=0x...                             # your shell, not a file
+npm run deploy:shannon
+```
+
+`preflight` checks the deployer on **both** networks before you spend anything.
+The protocol core is CREATE3-deployed, so the same addresses exist on Shannon and
+on Somnia mainnet, and a key reused across projects can quietly hold real SOMI —
+it refuses to proceed if the address has a mainnet balance worth caring about.
+
+`Deploy.s.sol` subscribes only when the deployer can fund the vault with 33 STT.
+Under that it deploys anyway and prints how to drive it, which is not a degraded
+mode: the keeper below runs the identical internals.
+
+Then point the keeper at whatever address it printed:
+
+```bash
+PRIVATE_KEY=0x... npx tsx src/keeper.ts --vault 0xDeployedVault --live
+```
+
+Use a throwaway deployer. Nothing here needs a key that holds value.
+
 ## The keeper
 
 `src/keeper.ts` is reactivity, polled. It watches the exact two module events the

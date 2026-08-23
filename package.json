@@ -12,7 +12,9 @@
     "dev:api": "tsx src/server.ts",
     "dev:app": "npm --prefix app run dev",
     "demo": "node scripts/demo.mjs",
-    "keeper": "tsx src/keeper.ts"
+    "keeper": "tsx src/keeper.ts",
+    "preflight": "tsx scripts/preflight.ts",
+    "deploy:shannon": "forge script script/Deploy.s.sol --root contracts --rpc-url https://api.infra.testnet.somnia.network/ --broadcast"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
