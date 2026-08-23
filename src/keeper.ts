@@ -50,6 +50,8 @@ export interface KeeperOpts {
   fromBlock?: bigint;
   /** Stop after one pass. Used by the verification script. */
   once?: boolean;
+  /** Log every module event seen, not just the ones that mean work. */
+  verbose?: boolean;
 }
 
 export class Keeper {
@@ -115,9 +117,14 @@ export class Keeper {
       if (!marketId) continue;
 
       if (topic0 === TOPIC_MARKET_FINALIZED) {
+        if (this.opts.verbose) log(`  saw MarketFinalized  ${short(marketId)}`);
         await this.onFinalized(marketId);
       } else if (topic0 === TOPIC_MARKET_CREATED) {
-        await this.onCreated(marketId, decodeAsset(l.data));
+        const asset = decodeAsset(l.data);
+        if (this.opts.verbose) {
+          log(`  saw MarketCreated    ${short(marketId)}  asset=${asset ? short(asset) : "UNDECODABLE"}`);
+        }
+        await this.onCreated(marketId, asset);
       }
     }
   }
@@ -200,7 +207,10 @@ export function decodeAsset(data: Hex): Hex | null {
   return keccak256(raw);
 }
 
-const short = (h: string) => `${h.slice(0, 10)}…`;
+/** Market ids are small sequential numbers left-padded into a bytes32, so the
+ *  leading characters are all zeros and identify nothing. Show the tail. */
+const short = (h: string) =>
+  /^0x0{40}/.test(h) ? `#${BigInt(h).toString(16)}` : `${h.slice(0, 10)}…`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${m}`);
 
@@ -208,6 +218,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const argv = process.argv.slice(2);
   const val = (n: string) => argv[argv.indexOf(`--${n}`) + 1];
   const live = argv.includes("--live");
+  const verbose = argv.includes("--verbose");
 
   const vault = (val("vault") ?? process.env.VAULT_ADDRESS) as Address | undefined;
   if (!vault) {
@@ -220,5 +231,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  await new Keeper({ vault, live, privateKey }).run();
+  await new Keeper({ vault, live, privateKey, verbose }).run();
 }

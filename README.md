@@ -227,6 +227,32 @@ into a backstop.
 
 Use a throwaway deployer. Nothing here needs a key that holds value.
 
+## Live on Shannon
+
+```
+AutoRollVault   0x191e7817e6faaff2169660e6f13f2f3197ecbc9c
+deployed        block 469386xxx, 12078 bytes, 40.8M gas
+reactivity      not subscribed - keeper-driven
+```
+
+`npx tsx scripts/verify-vault.ts <address>` reads it back and checks the
+constructor wiring against the real protocol addresses, because a typo in a
+collateral address deploys perfectly cleanly and then fails on the first order.
+
+The keeper is discovering real windows against it:
+
+```
+19:10:01    saw MarketFinalized  #7a5b
+19:10:01    saw MarketCreated    #7a67  asset=0xe98e2830…   (BTC)
+19:10:01    saw MarketFinalized  #7a5c
+19:10:01    saw MarketCreated    #7a68  asset=0xaaaebeba…   (ETH)
+```
+
+A finalize/create pair per asset, once a minute, on the 60-second series — the
+venue really does roll a successor the instant a window dies, which is the whole
+premise the product rests on. The asset hashes match `keccak256("BTC")` and
+`keccak256("ETH")`, so the hand-rolled word-13 decode agrees with the chain.
+
 ## The keeper
 
 `src/keeper.ts` is reactivity, polled. It watches the exact two module events the
