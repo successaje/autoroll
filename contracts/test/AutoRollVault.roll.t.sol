@@ -161,6 +161,23 @@ contract AutoRollVaultRollTest is Test {
         console.log("bankroll:", bankroll);
     }
 
+    /// A caller who under-budgets must be told so, not silently handed a "no
+    /// fill". This is the failure that made `eth_estimateGas` converge on a
+    /// budget where the vault never traded and nothing ever reverted.
+    function test_lowGasBudgetIsReportedNotSilentlySkipped() public {
+        _open();
+
+        vm.expectEmit(true, true, false, true);
+        emit AutoRollVault.RollSkipped(1, MARKET_ID, "gas budget too low to place an order");
+        vault.pokeCreated{gas: 400_000}(MARKET_ID, ETH);
+
+        (,,,, uint256 bankroll, uint256 atRisk, uint256 quantity,,,,) = vault.positions(1);
+        assertEq(bankroll, STAKE, "nothing committed");
+        assertEq(atRisk, 0);
+        assertEq(quantity, 0);
+        assertEq(vault.pendingCount(ETH), 1, "still queued, so a funded poke can retry");
+    }
+
     /// A limit tighter than anything on the book must commit NOTHING and leave
     /// the position queued — this is the path that used to book a wipe.
     function test_noFillLeavesThePositionUntouched() public {

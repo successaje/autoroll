@@ -153,6 +153,56 @@ library, no modal. The product's whole claim is that you sign once and walk away
 so the wallet should be the least interesting part of it. The allowance is checked
 before approving, so a returning user signs once rather than twice.
 
+## The keeper
+
+`src/keeper.ts` is reactivity, polled. It watches the exact two module events the
+subscription filters on and calls the vault's `poke*` entries, which run the
+identical internals. Deliberately RPC-only — no indexer, no SDK, no market list —
+so it depends on nothing the reactive path does not and the two cannot drift.
+
+```bash
+npx tsx src/keeper.ts --vault 0x…             # dry run: logs what it would send
+PRIVATE_KEY=0x… npx tsx src/keeper.ts --vault 0x… --live
+```
+
+It gates every write on the vault's own state (`pendingCount`, `inMarketCount`),
+so the overwhelming majority of windows cost two `eth_call`s and no transaction.
+
+Verified end to end against a pinned fork — real module logs replayed out of
+history, asset decoded from the log, a real `pokeCreated` transaction, a real
+fill:
+
+```
+before  pending=1  quantity=0         atRisk=0         bankroll=100000000
+        enter 0x00006c5c (1 pending) — 0xcde28103…
+after   pending=0  quantity=30769000  atRisk=16522953  bankroll=83477047
+```
+
+`scripts/verify-keeper.ts` reproduces it. Two harness details it has to handle:
+the fixture's resting maker orders carry short expiries, so anvil's wall-clock
+timestamps age the book off within ~30 seconds and the script rewinds the chain
+clock with `evm_setTime` first; and log scanning is chunked to 999 blocks,
+because Somnia's cap applies here too.
+
+### The bug that found
+
+The first live run entered nothing, three times over, reporting "no fill at
+limit" against a book that visibly had asks. The pool was actually reverting
+`InsufficientGasForPayout` — a `try` forwards only 63/64 of remaining gas, so an
+under-budgeted caller starves the pool mid-fill.
+
+Caught blindly that is indistinguishable from "nobody was selling", and it gets
+much worse: `eth_estimateGas` binary-searches for a budget that *does not revert*,
+and because the vault swallows the failure, the cheapest non-reverting budget is
+one where **every order fails**. The estimate is stable, the transaction
+succeeds, and the vault never trades. Nothing reverts to say so.
+
+Fixed on both sides. The vault refuses to attempt an order below
+`MIN_ORDER_GAS` and says so, and it now distinguishes the one genuinely routine
+revert (`ImmediateOrCancelNoFill`) from everything else — anything else emits
+`RollFailed` with the pool's selector rather than being filed as a quiet skip.
+The keeper sends a fixed generous gas limit and never estimates.
+
 ## Reactivity is the fast path, not the only path
 
 A subscription needs 32 STT, which is a real gate on a faucet. So the vault also

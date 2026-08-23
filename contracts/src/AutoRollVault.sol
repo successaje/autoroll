@@ -67,8 +67,12 @@ contract AutoRollVault is SomniaEventHandler {
     /// The position is paid out when that window finalizes.
     event PositionStopRequested(uint256 indexed id, address indexed user);
     /// A window opened but nothing crossed at our limit; the stake is untouched
-    /// and the position stays queued for the next one.
+    /// and the position stays queued for the next one. Ordinary, not an error.
     event RollSkipped(uint256 indexed id, bytes32 indexed marketId, string reason);
+    /// The order failed for a reason that is NOT "nobody was selling". Carries the
+    /// pool's revert selector, because a roll that silently never happens is the
+    /// worst failure this contract can have.
+    event RollFailed(uint256 indexed id, bytes32 indexed marketId, bytes4 selector);
     event Subscribed(uint256 finalizedSubId, uint256 createdSubId);
 
     // ------------------------------------------------------- module wiring
@@ -161,6 +165,21 @@ contract AutoRollVault is SomniaEventHandler {
 
     /// Bounded work per reactive invocation — the vault pays this gas itself.
     uint256 public constant MAX_ROLLS_PER_EVENT = 16;
+
+    /**
+     *  Gas that must remain before an order is attempted.
+     *
+     *  A `try` forwards only 63/64 of what is left, so a caller who under-budgets
+     *  starves the pool mid-fill and it reverts `InsufficientGasForPayout`. Caught
+     *  blindly that looks exactly like "nobody was selling" — and because
+     *  `eth_estimateGas` binary-searches against this same contract, the estimate
+     *  happily converges on the cheap branch where the order always fails. The
+     *  vault then never trades, and nothing ever reverts to say so.
+     */
+    uint256 public constant MIN_ORDER_GAS = 2_000_000;
+
+    /// `ImmediateOrCancelNoFill()` — the one revert that is genuinely routine.
+    bytes4 private constant IOC_NO_FILL = 0xd48c4403;
 
     modifier onlyOwner() {
         require(msg.sender == owner, NotOwner());
@@ -400,6 +419,11 @@ contract AutoRollVault is SomniaEventHandler {
             return false;
         }
 
+        if (gasleft() < MIN_ORDER_GAS) {
+            emit RollSkipped(id, marketId, "gas budget too low to place an order");
+            return false;
+        }
+
         collateral.approve(pool, stake);
         // IOC, not a resting limit. A remainder left on the book has escrow the
         // vault cannot attribute back to one position when the window expires,
@@ -422,9 +446,16 @@ contract AutoRollVault is SomniaEventHandler {
             uint64(id) // userData: our position id, for attribution
         ) {
             // fall through to the fill check
-        } catch {
+        } catch (bytes memory err) {
             collateral.approve(pool, 0);
-            emit RollSkipped(id, marketId, "no fill at limit");
+            bytes4 sel = err.length >= 4 ? bytes4(err) : bytes4(0);
+            if (sel == IOC_NO_FILL) {
+                emit RollSkipped(id, marketId, "no fill at limit");
+            } else {
+                // Never silent. The handler still must not revert, but a failure
+                // that is not a plain no-fill has to be visible on chain.
+                emit RollFailed(id, marketId, sel);
+            }
             return false;
         }
         collateral.approve(pool, 0);
