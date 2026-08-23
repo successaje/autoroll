@@ -155,12 +155,10 @@ before approving, so a returning user signs once rather than twice.
 
 ## Deploying to Shannon
 
-Three commands. The key never leaves your shell, and never goes on a command line.
-
 ```bash
 npx tsx scripts/preflight.ts 0xYourDeployerAddress   # address only, never a key
-export PRIVATE_KEY=0x...                             # your shell, not a file
-npm run deploy:shannon
+npm run deploy:shannon                                # -i 1 prompts for the key
+npx tsx src/keeper.ts --vault 0xDeployedVault --live  # PRIVATE_KEY in your shell
 ```
 
 `preflight` checks the deployer on **both** networks before you spend anything.
@@ -168,15 +166,31 @@ The protocol core is CREATE3-deployed, so the same addresses exist on Shannon an
 on Somnia mainnet, and a key reused across projects can quietly hold real SOMI —
 it refuses to proceed if the address has a mainnet balance worth caring about.
 
-`Deploy.s.sol` subscribes only when the deployer can fund the vault with 33 STT.
-Under that it deploys anyway and prints how to drive it, which is not a degraded
-mode: the keeper below runs the identical internals.
+The deploy uses forge's `-i 1`, which prompts for the key on stdin. That keeps it
+out of `argv`, out of `ps`, and out of shell history, which `--private-key $VAR`
+does not. For repeat use, `cast wallet import` once and then `--account <name>`
+is better still. Deployment costs about **0.043 STT**.
 
-Then point the keeper at whatever address it printed:
+### Subscribing is a separate step, on purpose
+
+`forge script` simulates in Foundry's local EVM before it broadcasts, and that
+EVM has no reactivity precompile at `0x…0100`. `subscribe` returns empty data
+there, decoding it as a `uint256` reverts, and the deploy aborts before sending
+anything. Gating the call on `msg.sender.balance` does not save it either: the
+simulation sender carries a synthetic balance, so the branch is taken regardless
+of what the real deployer holds.
+
+So reactivity is wired afterwards, against the live node, which does have the
+precompile:
 
 ```bash
-PRIVATE_KEY=0x... npx tsx src/keeper.ts --vault 0xDeployedVault --live
+PRIVATE_KEY=0x... npm run subscribe -- --vault 0xDeployedVault
 ```
+
+That needs 33 STT — 32 held as a sybil gate and never spent, plus gas. **Skipping
+it is not a failure state.** The keeper drives the same internals through the
+vault's permissionless poke entries; subscribing turns the keeper from the driver
+into a backstop.
 
 Use a throwaway deployer. Nothing here needs a key that holds value.
 

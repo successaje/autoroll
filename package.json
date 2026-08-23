@@ -14,7 +14,8 @@
     "demo": "node scripts/demo.mjs",
     "keeper": "tsx src/keeper.ts",
     "preflight": "tsx scripts/preflight.ts",
-    "deploy:shannon": "forge script script/Deploy.s.sol --root contracts --rpc-url https://api.infra.testnet.somnia.network/ --broadcast"
+    "deploy:shannon": "cd contracts && forge script script/Deploy.s.sol --rpc-url https://api.infra.testnet.somnia.network/ --broadcast -i 1",
+    "subscribe": "tsx scripts/subscribe.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
