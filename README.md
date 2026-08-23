@@ -171,25 +171,38 @@ out of `argv`, out of `ps`, and out of shell history, which `--private-key $VAR`
 does not. For repeat use, `cast wallet import` once and then `--account <name>`
 is better still.
 
-### Why the deploy carries an explicit `--gas-limit`
+### Why deployment does not go through `forge script`
 
-Forge estimates gas in its own EVM, and that EVM does not know Somnia's gas
-schedule. Somnia charges roughly **5,000 gas per byte of deployed code** against
-the usual 200 — about 25x — so a 12KB contract costs ~61M gas here where forge
-predicts ~2.7M. Even with forge's default 1.3x cushion the transaction goes out
-with a limit 17x short and burns every unit of it before reverting:
+Somnia charges roughly **5,000 gas per byte of deployed code** against the EVM's
+usual 200 — about 25x. A 12KB contract therefore needs ~61M gas here, where
+Foundry's local EVM predicts ~2.7M. Forge sizes the broadcast transaction from
+its own estimate, so it goes out ~17x short and burns every unit of it:
 
 ```
 gasUsed 3567827 == gasLimit 3567827   →   out of gas, zero bytes deployed
 ```
 
-The failure costs real STT, and the simulation cannot catch it, because the
-simulation is the thing that is wrong. So the limit is pinned explicitly rather
-than estimated. 120M is generous headroom and still 0.8% of Somnia's 15B block
-limit; unused gas is refunded, so over-provisioning is free.
+Two things make this worse than an ordinary misconfiguration. The simulation
+cannot catch it, because the simulation is the thing that is wrong — a local dry
+run keeps reporting 0.043 STT and keeps being right about nothing. And
+`--gas-limit` does **not** fix it: on `forge script` that flag configures the
+simulation EVM, not the transaction, so passing it changes nothing and costs
+another failed deploy to discover.
 
-Budget about **0.4 STT** per deploy at a 6 gwei base fee — not the 0.04 forge
-prints.
+So `scripts/deploy.ts` sizes the transaction from `eth_estimateGas` against the
+live node, which is the only estimator that knows the real schedule, adds 50%
+head-room (unused gas is refunded, so head-room is free), and then verifies there
+are actually bytes at the address rather than trusting the status flag.
+
+```
+runtime code   12078 bytes
+node estimate  61,270,828 gas
+sending with   91,906,242 gas (150%)
+likely cost    0.44 STT
+```
+
+Budget about **0.45 STT** per deploy at a 6 gwei base fee. `--dry` estimates
+without a key and without sending anything.
 
 ### Subscribing is a separate step, on purpose
 

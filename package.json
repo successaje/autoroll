@@ -14,7 +14,7 @@
     "demo": "node scripts/demo.mjs",
     "keeper": "tsx src/keeper.ts",
     "preflight": "tsx scripts/preflight.ts",
-    "deploy:shannon": "cd contracts && forge script script/Deploy.s.sol --rpc-url https://api.infra.testnet.somnia.network/ --broadcast --slow --gas-limit 120000000 -i 1",
+    "deploy:shannon": "tsx scripts/deploy.ts",
     "subscribe": "tsx scripts/subscribe.ts"
   },
   "devDependencies": {
