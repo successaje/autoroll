@@ -488,6 +488,16 @@ contract AutoRollVault is SomniaEventHandler {
      *  @return price    Tick-aligned limit, in YES terms, on the collateral's scale.
      *  @return quantity Lot-aligned size, or 0 when it lands under the pool's floor.
      */
+    /// Test seam over `_quote`. Private functions are unreachable from a
+    /// harness subclass, and the grid maths is worth testing directly.
+    function _quoteExposed(address pool, bool up, uint256 maxPriceWad, uint256 stake)
+        internal
+        view
+        returns (uint256, uint256)
+    {
+        return _quote(pool, up, maxPriceWad, stake);
+    }
+
     function _quote(address pool, bool up, uint256 maxPriceWad, uint256 stake)
         private
         view
