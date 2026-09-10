@@ -250,6 +250,38 @@ instead of 32 STT.
 > The vault deployed at `0x191e…` predates `sweepNative`. **Do not fund it.**
 > Redeploy first — it costs ~0.25 STT and makes the 32 recoverable.
 
+## The loop, closed on a live chain
+
+```
+AutoRollVault  0xf0802c0c94bec42ac93bc7439724df04674a7a39
+position #1    BTC UP, 50 tUSDC, 20% per window, stop after 4 straight losses
+```
+
+```
+19:14:05  enter    #19655            RollSkipped "no fill at limit"
+19:15:11  enter    #1965d            PositionRolled  staked 8.1535
+19:20:06  harvest  #1965d            PositionSettled returned 0, won=false
+19:21:04  enter    #1966d            RollSkipped "no fill at limit"
+```
+
+Enter, settle, re-enter — unattended, no signature after the first. The numbers
+close exactly: staked 8.1535 of a 50.0000 principal, lost the window, bankroll
+41.8465, `atRisk` and `quantity` both back to zero, `losses` 1 of an allowed 4.
+
+**It lost, and that is the useful result.** A binary window pays nothing on a
+loss, so the thing worth proving was never that the coin lands right — it was
+that a loss costs the *stake* and not the position. 20% went in, 20% went away,
+the other 80% is still working, and three more losses stop it. That is the whole
+risk argument, demonstrated rather than asserted.
+
+The two `no fill at limit` lines matter as much. Nothing crossed under 0.65, so
+the IOC committed nothing at all and the position stayed queued with its stake
+untouched — the alternative, a resting order, is what used to book an unfilled
+window as a total loss.
+
+Fill quality: 8.1535 for 15,384,000 contracts is 0.53 against a 0.65 limit.
+Sizing is computed against the limit, so a better fill simply spends less.
+
 ## Live on Shannon
 
 ```

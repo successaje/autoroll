@@ -7,6 +7,7 @@
  *    PRIVATE_KEY=0x… npx tsx scripts/open-position.ts \
  *      --vault 0x… --asset BTC --up --stake 50
  */
+import { readFile } from "node:fs/promises";
 import {
   createPublicClient,
   createWalletClient,
@@ -24,13 +25,18 @@ import { NET } from "../src/config.js";
 
 const TEST_USDC = "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E" as const;
 
-const vaultAbi = parseAbi([
-  "struct Policy { uint32 maxRolls; uint32 maxLosses; uint32 takeProfitBps; uint32 sizeBps; uint64 maxPriceWad; bool compound; }",
-  "function openPosition(bytes32 asset, bool up, uint256 stake, Policy policy) returns (uint256)",
-  "function pendingCount(bytes32 asset) view returns (uint256)",
-  "function nextPositionId() view returns (uint256)",
-  "function collateral() view returns (address)",
-]);
+/**
+ *  Read from the compiled artifact, never hand-written.
+ *
+ *  A hand-copied struct got `takeProfitBps` wrong (uint32 for the contract's
+ *  uint64). That changes the tuple, which changes the selector, so the call
+ *  landed on no function at all and reverted with empty data — which looks
+ *  exactly like a failing `transferFrom` and is nothing of the sort.
+ */
+const vaultArtifact = JSON.parse(
+  await readFile(new URL("../contracts/out/AutoRollVault.sol/AutoRollVault.json", import.meta.url), "utf8"),
+);
+const vaultAbi = vaultArtifact.abi;
 const erc20Abi = parseAbi([
   "function faucet(uint256 amount)",
   "function balanceOf(address) view returns (uint256)",
