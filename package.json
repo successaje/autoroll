@@ -15,7 +15,8 @@
     "keeper": "tsx src/keeper.ts",
     "preflight": "tsx scripts/preflight.ts",
     "deploy:shannon": "tsx scripts/deploy.ts",
-    "subscribe": "tsx scripts/subscribe.ts"
+    "subscribe": "tsx scripts/subscribe.ts",
+    "check:abi": "tsx scripts/check-abi.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

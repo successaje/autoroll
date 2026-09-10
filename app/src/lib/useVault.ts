@@ -17,7 +17,10 @@ export function useVault(account: `0x${string}` | null) {
     try {
       const [rows, bal] = await Promise.all([readPositions(account), readBalance(account)]);
       const withHistory = await Promise.all(
-        rows.map(async (p) => ({ ...p, history: await readHistory(p.id) })),
+        rows.map(async (p) => ({
+          ...p,
+          history: await readHistory(p.id, BigInt(p.principal), p.rolls),
+        })),
       );
       setPositions(withHistory);
       setBalance(bal);
@@ -44,6 +47,7 @@ export function useVault(account: `0x${string}` | null) {
       staked: h.staked,
       returned: h.returned,
       bankroll: h.bankroll,
+      delta: h.delta,
       at: Date.now() - (p.history.length - i) * 60_000,
     })),
   );

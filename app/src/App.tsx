@@ -54,6 +54,7 @@ function Body({
   onClose,
   busy,
   step,
+  readOnly,
 }: {
   positions: Position[];
   decimals: number;
@@ -63,9 +64,11 @@ function Body({
   onClose: (id: number) => void;
   busy: boolean;
   step?: string | null;
+  /** Watching somebody else's position: render it, offer no controls. */
+  readOnly?: boolean;
 }) {
   const current = positions.find((p) => p.active) ?? positions.at(-1) ?? null;
-  const showOpen = !current || !current.active;
+  const showOpen = !readOnly && (!current || !current.active);
 
   return (
     <>
@@ -76,7 +79,7 @@ function Body({
           position={current}
           decimals={decimals}
           lastEntered={lastEntered}
-          onClose={() => onClose(current.id)}
+          onClose={readOnly ? undefined : () => onClose(current.id)}
         />
       )}
 
@@ -101,11 +104,26 @@ function Body({
 
 /* ------------------------------------------------------------- on-chain mode */
 
+/**
+ *  `?watch=0x…` opens a position read-only, with no wallet involved.
+ *
+ *  Worth having beyond debugging: a running position is the interesting thing
+ *  to show somebody, and requiring them to install a wallet first to look at it
+ *  is a bad trade. It is also the only way to see the vault's state on a device
+ *  that has no injected provider at all.
+ */
+function watchParam(): `0x${string}` | null {
+  const v = new URLSearchParams(window.location.search).get("watch");
+  return v && /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as `0x${string}`) : null;
+}
+
 function OnChain() {
   const wallet = useWallet();
   const ready = Boolean(wallet.account) && wallet.onRightChain;
+  const watching = useMemo(watchParam, []);
+  const spectating = !ready && watching !== null;
   const { positions, balance, decimals, feed, error, refresh } = useVault(
-    ready ? wallet.account : null,
+    ready ? wallet.account : watching,
   );
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
@@ -146,13 +164,17 @@ function OnChain() {
   const badge = (
     <span className="badge" title={VAULT}>
       <span className={`dot ${ready ? "on" : "warn"}`} />
-      {ready ? `${wallet.account!.slice(0, 6)}…${wallet.account!.slice(-4)}` : shannon.name}
+      {ready
+        ? `${wallet.account!.slice(0, 6)}…${wallet.account!.slice(-4)}`
+        : spectating
+          ? `watching ${watching!.slice(0, 6)}…${watching!.slice(-4)}`
+          : shannon.name}
     </span>
   );
 
   return (
     <Shell badge={badge}>
-      {!ready ? (
+      {!ready && !spectating ? (
         <ConnectCard wallet={wallet} />
       ) : (
         <>
@@ -170,15 +192,18 @@ function OnChain() {
             onClose={close}
             busy={busy}
             step={step}
+            readOnly={spectating}
           />
           <div className="row" style={{ padding: "0 4px" }}>
             <span className="sub">Balance {money(balance.toString(), decimals)} tUSDC</span>
-            <button
-              className="chip"
-              onClick={() => wallet.account && faucet(wallet.account).then(refresh)}
-            >
-              Get test tUSDC
-            </button>
+            {!spectating && (
+              <button
+                className="chip"
+                onClick={() => wallet.account && faucet(wallet.account).then(refresh)}
+              >
+                Get test tUSDC
+              </button>
+            )}
           </div>
         </>
       )}

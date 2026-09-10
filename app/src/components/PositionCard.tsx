@@ -11,7 +11,7 @@ export function PositionCard({
   position: Position;
   decimals: number;
   lastEntered: Extract<RollerEvent, { kind: "entered" }> | null;
-  onClose: () => void;
+  onClose?: () => void;
 }) {
   // Funds committed to a live window have left `bankroll` but are still the
   // user's money — the headline is what they own, not what happens to be idle.
@@ -74,10 +74,12 @@ export function PositionCard({
         </div>
       )}
 
-      {position.active ? (
+      {position.active && onClose ? (
         <button className="cta ghost" onClick={onClose}>
           Stop rolling
         </button>
+      ) : position.active ? (
+        <p className="sub">Rolling. Connect the owning wallet to stop it.</p>
       ) : (
         <p className="sub">
           Closed after {position.rolls} {position.rolls === 1 ? "roll" : "rolls"}.

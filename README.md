@@ -282,6 +282,49 @@ window as a total loss.
 Fill quality: 8.1535 for 15,384,000 contracts is 0.53 against a 0.65 limit.
 Sizing is computed against the limit, so a better fill simply spends less.
 
+## The UI against the live vault
+
+`app/.env` points the app at the deployed vault and it reads chain state
+directly — no roller, no server:
+
+```
+BTC Up · rolling            BETWEEN WINDOWS
+41.85  -16.3%
+ROLLS 1    WON 0/1    DEPOSITED 50.00
+LOST  -8.15 · bankroll 41.85
+```
+
+Every figure is the contract's own: bankroll 41846480, principal 50000000,
+`atRisk` and `quantity` zero between windows, one roll, none won.
+
+**`?watch=0x…` opens any position read-only, with no wallet at all.** A running
+position is the interesting thing to show somebody, and making them install a
+wallet before they can look at it is a bad trade. It is also the only way to see
+the vault on a device with no injected provider.
+
+Two things the live read shook out. The activity feed printed `staked 0.00,
+back 0.00` — the on-chain curve ring stores only bankroll and won, so the gross
+legs of a roll are not recoverable from it and the UI was rendering unknowns as
+zeros. It now shows the net move (`-8.15`), which *is* derivable, and the type
+carries a comment saying why the two paths differ. And the first point's delta
+needs the principal as its predecessor, since the ring holds no point for the
+bankroll before roll one.
+
+### `npm run check:abi`
+
+The app hand-writes its ABI. A hand-copied `Policy` with `uint32 takeProfitBps`
+where the contract has `uint64` is a different tuple, so a different selector,
+so a call that lands on no function and reverts with **empty data** — which
+looks exactly like a failing token transfer and is nothing of the sort. That
+cost an hour. TypeScript cannot catch it; comparing selectors can:
+
+```
+ok  openPosition  0x8bc0fd6b     ok  curveOf       0x12d45bb3
+ok  closePosition 0xa126d601     ok  positions     0x99fbab88
+ok  positionsOf   0xf867d46b     ok  pendingCount  0x80253817
+ok  equityOf      0x71bbab34
+```
+
 ## Live on Shannon
 
 ```

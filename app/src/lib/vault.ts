@@ -172,7 +172,14 @@ export async function faucet(account: `0x${string}`, amountHuman = 500): Promise
  *  growing. The vault keeps a bounded ring of the last 32 points instead, which
  *  is more than the chart shows anyway.
  */
-export async function readHistory(id: number): Promise<Position["history"]> {
+export async function readHistory(
+  id: number,
+  /** Bankroll before the first recorded roll. The ring holds no point for it. */
+  principal: bigint,
+  /** Total rolls ever. Once this exceeds the ring size the oldest point's
+   *  predecessor has been overwritten and its delta is genuinely unknowable. */
+  rolls: number,
+): Promise<Position["history"]> {
   if (!VAULT) return [];
   const [bankrolls, won] = await publicClient.readContract({
     address: VAULT,
@@ -181,13 +188,22 @@ export async function readHistory(id: number): Promise<Position["history"]> {
     args: [BigInt(id)],
   });
 
-  return bankrolls.map((b, i) => ({
-    marketId: "",
-    staked: "0",
-    returned: "0",
-    bankroll: b.toString(),
-    won: won[i],
-  }));
+  // Only the net change per roll survives in the ring: the stake leaves the
+  // bankroll on entry and the payout comes back on settlement, and the ring
+  // samples once, after both. For a loss that net IS the stake; for a win it is
+  // the profit, not the gross return. Carry it as a delta and let the UI say so.
+  const wrapped = rolls > bankrolls.length;
+  return bankrolls.map((b, i) => {
+    const prev = i > 0 ? bankrolls[i - 1] : wrapped ? null : principal;
+    return {
+      marketId: "",
+      staked: "0",
+      returned: "0",
+      bankroll: b.toString(),
+      delta: prev === null ? undefined : (b - prev).toString(),
+      won: won[i],
+    };
+  });
 }
 
 export async function readBalance(account: `0x${string}`): Promise<bigint> {
