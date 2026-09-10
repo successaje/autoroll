@@ -227,10 +227,33 @@ into a backstop.
 
 Use a throwaway deployer. Nothing here needs a key that holds value.
 
+## Reactivity funding is one-way, so check before you send
+
+`SUBSCRIPTION_OWNER_MINIMUM_BALANCE` is **32 STT held by the vault** — not by the
+deployer, and not a fee. The precompile checks `address(this).balance` at
+subscribe time and never deducts it; it is a floor, drawn down afterwards only
+by handler gas. One 32 covers both subscriptions, since they are two calls in
+one transaction and neither spends it.
+
+Two traps sat on that path, both now closed:
+
+- `subscribe.ts` declared `subscribeAll(uint64,uint256,uint256)` against a
+  contract taking `(uint64,uint64,uint64)` — selector `0x2c1631c1` vs
+  `0x87ad155d`. It would have funded the vault and *then* reverted.
+- The vault had no way to send native STT back out. `sweep` moves ERC20s only,
+  so 32 STT into a vault that then failed to subscribe was stranded for good.
+
+`sweepNative` fixes the second, and the script now **simulates `subscribeAll`
+under a state override before sending any value**. A revert costs nothing
+instead of 32 STT.
+
+> The vault deployed at `0x191e…` predates `sweepNative`. **Do not fund it.**
+> Redeploy first — it costs ~0.25 STT and makes the 32 recoverable.
+
 ## Live on Shannon
 
 ```
-AutoRollVault   0x191e7817e6faaff2169660e6f13f2f3197ecbc9c
+AutoRollVault   0x191e7817e6faaff2169660e6f13f2f3197ecbc9c   (pre-sweepNative)
 deployed        block 469386xxx, 12078 bytes, 40.8M gas
 reactivity      not subscribed - keeper-driven
 ```

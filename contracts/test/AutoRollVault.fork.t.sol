@@ -131,6 +131,51 @@ contract AutoRollVaultForkTest is Test {
                           FUND-LOSS REGRESSIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// Reactivity needs 32 STT parked in the vault. Without a native recovery
+    /// path that funding is a one-way trip, and a failed subscribe strands it.
+    function test_nativeCanBeRecovered() public {
+        address deployer = makeAddr("deployer"); // an EOA, as in the real deploy
+        vm.prank(deployer);
+        AutoRollVault v = new AutoRollVault(BINARY_MODULE, OUTCOME_TOKEN, TEST_USDC);
+
+        vm.deal(address(v), 32 ether);
+        uint256 before = deployer.balance;
+
+        vm.prank(deployer);
+        v.sweepNative(32 ether);
+
+        assertEq(deployer.balance, before + 32 ether, "recovered in full");
+        assertEq(address(v).balance, 0);
+    }
+
+    /// If the owner cannot receive native, the sweep must REVERT rather than
+    /// report success and burn the balance.
+    function test_sweepNativeRevertsRatherThanLosingFunds() public {
+        // `vault`'s owner is this test contract, which has no receive().
+        vm.deal(address(vault), 1 ether);
+        vm.prank(vault.owner());
+        vm.expectRevert(AutoRollVault.NativeTransferFailed.selector);
+        vault.sweepNative(1 ether);
+        assertEq(address(vault).balance, 1 ether, "balance untouched");
+    }
+
+    function test_sweepNativeIsOwnerOnly() public {
+        vm.deal(address(vault), 1 ether);
+        vm.prank(user);
+        vm.expectRevert(AutoRollVault.NotOwner.selector);
+        vault.sweepNative(1 ether);
+    }
+
+    /// The vault must accept a plain transfer too - some funding paths do not
+    /// call `fundReactivity`.
+    function test_vaultAcceptsPlainNativeTransfer() public {
+        vm.deal(user, 5 ether);
+        vm.prank(user);
+        (bool ok,) = payable(address(vault)).call{value: 5 ether}("");
+        assertTrue(ok, "receive() accepts it");
+        assertEq(address(vault).balance, 5 ether);
+    }
+
     /// A position closed BETWEEN windows used to set `maxRolls = rolls` and wait
     /// for a harvest that could never come — nothing was committed, so nothing
     /// would ever finalize, and the bankroll stayed locked in the vault forever.

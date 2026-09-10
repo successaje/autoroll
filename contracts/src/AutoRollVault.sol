@@ -43,6 +43,7 @@ contract AutoRollVault is SomniaEventHandler {
 
     error NotOwner();
     error AlreadySubscribed();
+    error NativeTransferFailed();
     error NotSubscribed();
     error InsufficientReactivityBalance(uint256 have, uint256 need);
     error NoSuchPosition();
@@ -687,6 +688,22 @@ contract AutoRollVault is SomniaEventHandler {
 
     function sweep(address token, uint256 amount) external onlyOwner {
         IERC20(token).transfer(owner, amount);
+    }
+
+    /**
+     *  Recover native STT.
+     *
+     *  Reactivity needs 32 STT sitting in this contract as a floor, and that
+     *  balance is otherwise a one-way trip: `sweep` moves ERC20s only, so
+     *  without this the funding transaction is irreversible and a failed
+     *  `subscribeAll` strands it for good.
+     *
+     *  Draining below the floor while subscribed will stop handlers firing —
+     *  that is the owner's call to make, and the keeper covers the gap.
+     */
+    function sweepNative(uint256 amount) external onlyOwner {
+        (bool ok,) = payable(owner).call{value: amount}("");
+        require(ok, NativeTransferFailed());
     }
 
     receive() external payable {}

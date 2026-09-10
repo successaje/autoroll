@@ -29,8 +29,10 @@ const REQUIRED = parseEther("33");
 
 const abi = parseAbi([
   "function fundReactivity() payable",
-  "function subscribeAll(uint64 gasLimit, uint256 priorityFeePerGas, uint256 maxFeePerGas) returns (uint256 finalizedSub, uint256 createdSub)",
+  "function subscribeAll(uint64 gasLimit, uint64 priorityFeePerGas, uint64 maxFeePerGas) returns (uint256 finalizedSub, uint256 createdSub)",
   "function owner() view returns (address)",
+  "function finalizedSubId() view returns (uint256)",
+  "function sweepNative(uint256 amount)",
 ]);
 
 const argv = process.argv.slice(2);
@@ -65,7 +67,29 @@ if (balance < REQUIRED) {
   process.exit(1);
 }
 
-console.log("funding the vault with 32 STT (held as a sybil gate, never spent)…");
+const already = await publicClient.readContract({ address: vault, abi, functionName: "finalizedSubId" });
+if (already !== 0n) {
+  console.error(`Already subscribed (finalizedSubId=${already}). Nothing to do.`);
+  process.exit(1);
+}
+
+// Simulate the subscribe FIRST. Funding is a separate transaction and the STT
+// only leaves again via sweepNative, so discovering a bad call after the
+// transfer is the expensive order to find out in.
+console.log("simulating subscribeAll before sending any value…");
+try {
+  await publicClient.simulateContract({
+    account, address: vault, abi, functionName: "subscribeAll",
+    args: [10_000_000n, 0n, 20_000_000_000n],
+    stateOverride: [{ address: vault, balance: parseEther("33") }],
+  });
+  console.log("  simulation OK");
+} catch (err) {
+  console.error(`\nsubscribeAll would revert — NOT funding.\n${(err as Error).message.split("\n")[0]}`);
+  process.exit(1);
+}
+
+console.log("funding the vault with 32 STT (held as a floor, spent only on handler gas)…");
 const fundHash = await wallet.writeContract({
   address: vault, abi, functionName: "fundReactivity", value: parseEther("32"),
 });
