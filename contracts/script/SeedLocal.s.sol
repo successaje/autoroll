@@ -16,6 +16,10 @@ interface ITestUsdc {
  *    anvil --fork-url https://api.infra.testnet.somnia.network/
  *    forge script script/SeedLocal.s.sol --rpc-url http://localhost:8545 --broadcast \
  *      --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+ *
+ *  That key is anvil's default account #0 — public, in every Foundry install,
+ *  funded on nothing but a local node. It is written out here on purpose so the
+ *  command is copy-pasteable; never point it at a real network.
  */
 contract SeedLocal is Script {
     address constant BINARY_MODULE = 0x3ecC694Cef705358864a646142ac17A90E29e388;

@@ -14,6 +14,8 @@ import { Keeper } from "../src/keeper.js";
 import { NET } from "../src/config.js";
 
 const RPC = "http://localhost:8545";
+/** anvil's default account #0. Public, shipped with Foundry, funded only on a
+ *  local node — this is a fixture, not a secret. */
 const ANVIL_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
 const CREATION_BLOCK = 468556900n; // the fixture window's MarketCreated
 const FORK_TS = 1787428615; // the fixture block's own timestamp
