@@ -1,3 +1,5 @@
+import { MetaMaskLink } from "./MetaMaskLink";
+import { useNavigation } from "../lib/navigation";
 import { useEffect, useState } from "react";
 import type { Wallet } from "../lib/useWallet";
 import { useWindows } from "../lib/useWindows";
@@ -8,6 +10,7 @@ import { shannon, VAULT } from "../lib/chain";
  * lifecycle events without implying that every one belongs to AutoRoll.
  */
 export function Landing({ wallet }: { wallet: Wallet }) {
+  const { page, go } = useNavigation();
   const { events, expired, opened, connected, seeded } = useWindows();
 
   // Until the live count moves, report what happened just before arrival. Both
@@ -24,7 +27,7 @@ export function Landing({ wallet }: { wallet: Wallet }) {
 
   return (
     <div className="deck">
-      <section className="card lp">
+      {page !== "activity" && <section className="card lp">
         <div className="lp-live">
           <span className={`dot ${connected ? "on" : "warn"}`} />
           {connected ? "live on " : "connecting to "}
@@ -66,14 +69,13 @@ export function Landing({ wallet }: { wallet: Wallet }) {
             <button className="cta" onClick={wallet.connect} disabled={wallet.connecting}>
               {wallet.connecting ? "Check your wallet…" : "Open a position"}
             </button>
-          ) : VAULT ? (
+          ) : (<MetaMaskLink />)}
+          {!wallet.available && VAULT ? (
             <a className="cta" href={`${shannon.blockExplorers.default.url}/address/${VAULT}`} target="_blank" rel="noreferrer">
               View the live vault
             </a>
           ) : null}
-          <a className="cta ghost" href="#windows">
-            See live market activity
-          </a>
+          <button className="cta ghost" onClick={() => go("activity")}>See live market activity</button>
         </div>
 
         {wallet.error && <p className="sub err">{wallet.error}</p>}
@@ -83,9 +85,9 @@ export function Landing({ wallet }: { wallet: Wallet }) {
             the app will add {shannon.name} and use test tUSDC.
           </p>
         )}
-      </section>
+      </section>}
 
-      <section className="card" id="windows">
+      <section className={`card ${page !== "activity" ? "desktop-activity" : ""}`} id="windows">
         <h2 style={{ marginBottom: 6 }}>Windows, right now</h2>
         {events.length === 0 ? (
           <p className="empty">Watching {shannon.name} for the next settlement…</p>

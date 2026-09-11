@@ -16,7 +16,8 @@
     "preflight": "tsx scripts/preflight.ts",
     "deploy:shannon": "tsx scripts/deploy.ts",
     "subscribe": "tsx scripts/subscribe.ts",
-    "check:abi": "tsx scripts/check-abi.ts"
+    "check:abi": "tsx scripts/check-abi.ts",
+    "mobile:serve": "node scripts/mobile-preview.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

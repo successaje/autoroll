@@ -431,3 +431,18 @@ body {
   .lp-cta { flex-direction: row; }
   .lp-cta .cta { flex: 1; }
 }
+
+/* Mobile navigation keeps the existing surface and series palette. */
+.shell { padding-top: 0; padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+.topbar { position: sticky; top: 0; z-index: 20; background: var(--surface-0); padding: calc(12px + env(safe-area-inset-top)) 0 12px; border-bottom: 1px solid var(--hairline); gap: 8px; }
+.brand small { display: none; }
+.badge { max-width: 55%; overflow-wrap: anywhere; }
+.page-heading h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+.bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 30; display: grid; grid-template-columns: repeat(3, 1fr); padding: 8px max(14px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); background: var(--surface-1); border-top: 1px solid var(--hairline); }
+.bottom-nav button { min-height: 48px; font: 600 14px var(--font); background: transparent; color: var(--text-secondary); border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.bottom-nav button[aria-current] { background: var(--surface-3); color: var(--series-1); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.chip { min-height: 44px; }
+a.cta { display: block; text-align: center; text-decoration: none; }
+.desktop-activity { display: none; }
+@media (min-width: 900px) { .brand small { display: inline; } .desktop-activity { display: block; } .bottom-nav { left: 50%; transform: translateX(-50%); max-width: 952px; border: 1px solid var(--hairline); border-radius: 16px 16px 0 0; } }

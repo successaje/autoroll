@@ -1,3 +1,4 @@
+import { NavigationProvider, useNavigation } from "./lib/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { OpenCard, type OpenRequest } from "./components/OpenCard";
 import { PositionCard } from "./components/PositionCard";
@@ -13,7 +14,7 @@ import { money } from "./lib/format";
 import type { Position, RollerEvent, Snapshot } from "./lib/types";
 
 export default function App() {
-  return onChainMode ? <OnChain /> : <OffChain />;
+  return <NavigationProvider>{onChainMode ? <OnChain /> : <OffChain />}</NavigationProvider>;
 }
 
 /* ------------------------------------------------------------------ shared */
@@ -27,6 +28,14 @@ function Shell({
   badge: React.ReactNode;
   note?: React.ReactNode;
 }) {
+  const { page, go, back } = useNavigation();
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine);
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => { window.removeEventListener("online", sync); window.removeEventListener("offline", sync); };
+  }, []);
   return (
     <main className="shell">
       <header className="topbar">
@@ -36,7 +45,15 @@ function Shell({
         </div>
         {badge}
       </header>
-      {children}
+      <div className="row page-heading">
+        <h1 tabIndex={-1}>{page === "position" ? "Position" : page === "trade" ? "Trade" : "Activity"}</h1>
+        {(page !== "position" || history.state?.autorollDepth > 0) && <button className="chip" onClick={back}>← Back</button>}
+      </div>
+      {!online && <section className="card" role="status">You’re offline. Connect to refresh balances, activity and wallet actions.</section>}
+      {online ? children : <section className="card empty">AutoRoll’s app shell is available offline. Live positions and trading require a connection.</section>}
+      <nav className="bottom-nav" aria-label="Main navigation">
+        {(["position", "trade", "activity"] as const).map(item => <button key={item} aria-current={page === item ? "page" : undefined} onClick={() => go(item)}>{item === "position" ? "Position" : item === "trade" ? "Trade" : "Activity"}</button>)}
+      </nav>
       <p className="foot">
         {note}
         Shannon testnet · event windows typically roll every 60 seconds. AutoRoll only
@@ -68,47 +85,16 @@ function Body({
   /** Watching somebody else's position: render it, offer no controls. */
   readOnly?: boolean;
 }) {
+  const { page, go } = useNavigation();
   const current = positions.find((p) => p.active) ?? positions.at(-1) ?? null;
-  const showOpen = !readOnly && (!current || !current.active);
-
-  return (
-    /*  One column on a phone. On a wide screen the position leads on the left
-        and the activity sits beside it, rather than the whole product being a
-        460px strip down the middle of a monitor. */
-    <div className="deck">
-      <div className="col">
-      {/* An active position is the whole screen; once it closes the open card
-          leads again and the finished run drops below it as a result. */}
-      {current?.active && (
-        <PositionCard
-          position={current}
-          decimals={decimals}
-          lastEntered={lastEntered}
-          onClose={readOnly ? undefined : () => onClose(current.id)}
-        />
-      )}
-
-      {showOpen && <OpenCard onOpen={onOpen} busy={busy} step={step} />}
-
-      {current && !current.active && (
-        <PositionCard
-          position={current}
-          decimals={decimals}
-          lastEntered={lastEntered}
-          onClose={() => {}}
-        />
-      )}
-
-      </div>
-
-      <div className="col">
-        <section className="card">
-          <h2 style={{ marginBottom: 6 }}>Activity</h2>
-          <Feed feed={feed} decimals={decimals} />
-        </section>
-      </div>
+  return <div className="deck workspace-deck">
+    <div className="col">
+      {page === "position" && (current ? <PositionCard position={current} decimals={decimals} lastEntered={lastEntered} onClose={!readOnly && current.active ? () => onClose(current.id) : undefined} /> : <section className="card stack"><h2>No position yet</h2><p className="sub">Open a view to follow it across eligible windows.</p>{!readOnly && <button className="cta" onClick={() => go("trade")}>Open a position</button>}</section>)}
+      {page === "trade" && (readOnly ? <section className="card empty">You’re watching this wallet. Connect your own wallet to trade.</section> : current?.active ? <section className="card stack"><h2>Your position is running</h2><p className="sub">Close your current position before opening another.</p><button className="cta ghost" onClick={() => go("position")}>View position</button></section> : <OpenCard onOpen={onOpen} busy={busy} step={step} />)}
+      {page === "activity" && <section className="card"><h2>Activity</h2><Feed feed={feed} decimals={decimals} /></section>}
     </div>
-  );
+    {page !== "activity" && <section className="card desktop-activity"><h2>Activity</h2><Feed feed={feed} decimals={decimals} /></section>}
+  </div>;
 }
 
 /* ------------------------------------------------------------- on-chain mode */
@@ -127,6 +113,7 @@ function watchParam(): `0x${string}` | null {
 }
 
 function OnChain() {
+  const { go } = useNavigation();
   const wallet = useWallet();
   const ready = Boolean(wallet.account) && wallet.onRightChain;
   const watching = useMemo(watchParam, []);
@@ -150,6 +137,7 @@ function OnChain() {
         setStep,
       );
       await refresh();
+      go("position");
     } catch (err: any) {
       // 4001 is the user dismissing the wallet prompt — not an error state.
       if (err?.code !== 4001) setStep(err?.shortMessage ?? err?.message ?? "Transaction failed");
@@ -231,6 +219,7 @@ function OnChain() {
 /** Drives the off-chain roller instead of a deployed vault. Identical product;
  *  it exists so the whole thing is demonstrable before the vault is deployed. */
 function OffChain() {
+  const { go } = useNavigation();
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -291,6 +280,7 @@ function OffChain() {
           setBusy(true);
           try {
             await post("/api/open", r);
+            go("position");
           } finally {
             setBusy(false);
           }

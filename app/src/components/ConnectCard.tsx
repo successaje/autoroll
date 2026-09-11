@@ -1,3 +1,4 @@
+import { MetaMaskLink } from "./MetaMaskLink";
 import type { Wallet } from "../lib/useWallet";
 import { shannon } from "../lib/chain";
 
@@ -12,6 +13,7 @@ export function ConnectCard({ wallet }: { wallet: Wallet }) {
             will add {shannon.name} for you.
           </p>
         </div>
+        <MetaMaskLink />
       </section>
     );
   }

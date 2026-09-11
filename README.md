@@ -602,3 +602,7 @@ page of things that bite people. The ones this code is built around:
   collateral delta rather than trusting the call
 - **#12** state is keyed by `marketId`; pools are recycled between windows
 - **#13** `asset` is read as a typed field, never regexed out of the question text
+
+## Phone app and recording
+
+See [MOBILE.md](MOBILE.md) for PWA installation, offline behavior, MetaMask handoff, and the Mac keeper / phone wallet recording setup. Run `npm --prefix app test` for the production build and PWA regression checks.
