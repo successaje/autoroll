@@ -13,9 +13,15 @@ export function PositionCard({
   lastEntered: Extract<RollerEvent, { kind: "entered" }> | null;
   onClose?: () => void;
 }) {
+  // A closed position has paid out, so `bankroll` is zero on chain — showing
+  // that as the headline reads as a total loss when the user was actually paid.
+  // The last curve point is the bankroll the payout was made from, which is the
+  // number they walked away with.
   // Funds committed to a live window have left `bankroll` but are still the
   // user's money — the headline is what they own, not what happens to be idle.
-  const equity = (BigInt(position.bankroll) + BigInt(position.atRisk)).toString();
+  const equity = position.active
+    ? (BigInt(position.bankroll) + BigInt(position.atRisk)).toString()
+    : (position.history.at(-1)?.bankroll ?? position.principal);
   const { pct, label } = pnl(equity, position.principal);
   const tone = pct > 0.05 ? "pos" : pct < -0.05 ? "neg" : "flat";
   const wins = position.history.filter((h) => h.won).length;
