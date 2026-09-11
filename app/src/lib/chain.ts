@@ -30,7 +30,11 @@ export const onChainMode = Boolean(VAULT);
 
 export const publicClient = createPublicClient({ chain: shannon, transport: http() });
 
+let connectedProvider: EIP1193Provider | null = null;
+export function setProvider(provider: EIP1193Provider) { connectedProvider = provider; }
+
 export function getProvider(): EIP1193Provider | null {
+  if (connectedProvider) return connectedProvider;
   const eth = (globalThis as any).ethereum;
   return eth ?? null;
 }

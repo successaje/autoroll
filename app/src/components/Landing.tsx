@@ -67,7 +67,7 @@ export function Landing({ wallet }: { wallet: Wallet }) {
         <div className="lp-cta">
           {wallet.available ? (
             <button className="cta" onClick={wallet.connect} disabled={wallet.connecting}>
-              {wallet.connecting ? "Check your wallet…" : "Open a position"}
+              {wallet.connecting ? "Check your wallet…" : "Connect MetaMask"}
             </button>
           ) : (<MetaMaskLink />)}
           {!wallet.available && VAULT ? (
@@ -79,12 +79,7 @@ export function Landing({ wallet }: { wallet: Wallet }) {
         </div>
 
         {wallet.error && <p className="sub err">{wallet.error}</p>}
-        {!wallet.available && (
-          <p className="sub">
-            No injected wallet here. To open a position, use a browser with MetaMask;
-            the app will add {shannon.name} and use test tUSDC.
-          </p>
-        )}
+        <p className="sub">Stay in this browser. MetaMask opens for connection and transaction approvals; return here to follow your position.</p>
       </section>}
 
       <section className={`card ${page !== "activity" ? "desktop-activity" : ""}`} id="windows">

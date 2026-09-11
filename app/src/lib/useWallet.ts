@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { getMetaMask } from "./metamask";
 import { ensureShannon, getProvider, shannon } from "./chain";
 
 export interface Wallet {
@@ -11,19 +12,20 @@ export interface Wallet {
   onRightChain: boolean;
 }
 
-/**
- *  A deliberately small EIP-1193 binding — no connector library, no modal.
- *  The product's whole claim is that the user signs once and then walks away,
- *  so the wallet surface should be the least interesting part of the app.
- */
+/** MetaMask Connect supports extension and mobile approval sessions. */
 export function useWallet(): Wallet {
   const [account, setAccount] = useState<`0x${string}` | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const provider = getProvider();
-  const available = Boolean(provider);
+  const [provider, updateProvider] = useState(getProvider);
+  const available = true;
+  useEffect(() => {
+    let mounted = true;
+    void getMetaMask().then(() => { if (mounted) updateProvider(() => getProvider()); }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     if (!provider) return;
@@ -42,7 +44,7 @@ export function useWallet(): Wallet {
         if (list.length > 0) setAccount(list[0]);
       })
       .catch(() => {});
-    void readChain();
+    void readChain().catch(() => {});
 
     const onAccounts = (accs: unknown) => setAccount((accs as `0x${string}`[])[0] ?? null);
     const onChain = (id: unknown) => setChainId(Number.parseInt(id as string, 16));
@@ -55,14 +57,16 @@ export function useWallet(): Wallet {
   }, [provider]);
 
   const connect = useCallback(async () => {
-    if (!provider) return;
     setConnecting(true);
     setError(null);
     try {
-      const accs = (await provider.request({ method: "eth_requestAccounts" })) as `0x${string}`[];
+      const client = await getMetaMask();
+      const activeProvider = getProvider()!;
+      updateProvider(() => activeProvider);
+      const { accounts: accs } = await client.connect({ chainIds: [`0x${shannon.id.toString(16)}`] });
       setAccount(accs[0] ?? null);
-      await ensureShannon(provider);
-      const id = (await provider.request({ method: "eth_chainId" })) as string;
+      await ensureShannon(activeProvider);
+      const id = (await activeProvider.request({ method: "eth_chainId" })) as string;
       setChainId(Number.parseInt(id, 16));
     } catch (err: any) {
       // 4001 is the user closing the prompt — not worth an error banner.
