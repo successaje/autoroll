@@ -60,6 +60,25 @@ network         Somnia Shannon testnet (chain 50312)
 explorer        https://shannon-explorer.somnia.network/address/0xf0802c0c94bec42ac93bc7439724df04674a7a39
 ```
 
+## Ecosystem tags
+
+| Field | Value |
+|---|---|
+| Layer-1s | **Somnia** — EVM L1, Shannon testnet chain 50312 (mainnet 5031) |
+| Layer-2s | *(empty — the project touches no L2)* |
+| Appchains | *(empty — that field means Cosmos SDK chains)* |
+| Other ecosystems | **dreamDEX** — Event Contracts are the substrate of the product |
+
+These are optional, and padding them is a bad trade: a reviewer who spots a
+tagged ecosystem the project does not actually integrate discounts everything
+else on the page. Two near-misses worth naming so nobody adds them later —
+
+- **Somnia's settlement oracle.** Markets carry an `oracleQuestionId` and
+  resolution is oracle-driven, but this contract never calls the oracle; it
+  consumes a result dreamDEX has already settled. Adjacent, not integrated.
+- **Foundry, viem, React, ERC-6909.** Build tooling and a token standard.
+  ERC-6909 looks like a tag but is only how outcome tokens are represented.
+
 ## Technical claims that are safe to make
 
 Every one of these is verifiable from the repo or the chain:
