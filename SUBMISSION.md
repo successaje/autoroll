@@ -60,6 +60,93 @@ network         Somnia Shannon testnet (chain 50312)
 explorer        https://shannon-explorer.somnia.network/address/0xf0802c0c94bec42ac93bc7439724df04674a7a39
 ```
 
+## Describe the build
+
+Three pieces: a vault contract that owns the loop, two interchangeable drivers
+that wake it up, and a mobile-first app that never has to be open for any of it
+to work.
+
+### 1. `AutoRollVault` — the loop, on chain
+
+One Solidity contract (~1,500 lines with the interfaces) holding custody and the
+whole state machine. A position is an asset, a side, a bankroll, and a policy:
+fraction of bankroll per window (`sizeBps`), consecutive-loss stop
+(`maxLosses`), take-profit, roll cap, a price limit, and whether to compound.
+The contract does two things forever — `_enter` on a new window, `_harvest` on a
+settled one — and between them applies the stops and pays out.
+
+Four decisions carry most of the weight:
+
+**Entry is IOC, never a resting order.** A resting bid that goes unfilled leaves
+escrow in the pool that the vault cannot attribute back to a single position
+when the window expires, which silently books a filled-nothing roll as a total
+loss. IOC either fills now or commits nothing, and the position is charged what
+was *actually* spent rather than the stake requested — a partial fill returns
+the remainder in the same call.
+
+**Prices are snapped to the pool's own grid, read live.** `tickSize`,
+`lotSize` and `minQuantity` come from `getOrderBookParameters()`, never
+hardcoded. The two sides snap in opposite directions: a Up buy rounds its limit
+DOWN, a Down buy is an ask at `one − q` so it rounds UP, because a higher YES
+price is a *cheaper* NO contract. Rounding both the same way silently overspends
+on one side.
+
+**Each position tracks its own outcome-token quantity.** Outcome tokens are an
+ERC-6909 singleton keyed by outcome, not by holder, so `balanceOf(vault, yesId)`
+is a pooled number across every position in that window. Redeeming it pays the
+first position everything and books the rest as losses. The fill is measured at
+entry and redeemed exactly.
+
+**The batch queues compact rather than clear.** Work is capped per event so a
+handler cannot run out of gas; the remainder stays queued for the next
+(permissionless, idempotent) call instead of being deleted with the positions
+still inside it.
+
+### 2. Two drivers, one set of internals
+
+`subscribeAll` registers two Somnia reactivity subscriptions — wildcard filters
+on the module's `MarketFinalized` and `MarketCreated` — so the chain itself
+invokes the handler at settlement with no operator in the loop.
+
+Because a subscription requires 32 STT parked in the contract, the same
+internals are also reachable through `pokeFinalized` / `pokeCreated`: public,
+permissionless, idempotent. A keeper (`src/keeper.ts`) watches the same two
+events over plain RPC and calls them — deliberately no SDK and no indexer, so it
+cannot drift from what the reactive path sees. It chunks `eth_getLogs` at 999
+blocks, because Somnia's 1000-block cap is **100 seconds** of history at 100ms
+blocks.
+
+This is not a fallback bolted on. Reactivity is the fast path and the keeper is
+the backstop for a handler that ran out of gas or lost its queue slot, and
+either can drive a vault alone.
+
+### 3. The app
+
+React and viem, reading the vault directly — no server, no indexer. A position
+is one card: equity, the curve, streak, and a stop button. The bankroll curve
+comes from a bounded 32-point ring in the contract rather than a log scan,
+because a 1000-block window cannot reach backwards far enough to rebuild an
+hour-old position.
+
+`?watch=0x…` opens any position read-only with no wallet at all, which is how a
+running position gets shown to someone who has nothing installed.
+
+### Also in the repo
+
+An off-chain roller built on `@somnia-chain/markets-sdk` (the Bot Kit surface)
+that runs the identical policy engine — it was the honest baseline the vault was
+measured against, and it still runs the product without a deployment.
+`npm run check:abi` compares every selector the app declares against the
+compiled contract; a hand-copied struct with one integer width wrong is a
+different selector and reverts with empty data, which is indistinguishable from
+a failing token transfer and cost an hour to find once.
+
+### Verification
+
+31 tests, all against forked live Shannon state rather than mocks — both sides
+of the book at exact fill prices the venue's real grid produces, the fund-loss
+regressions, the grid maths, and a full enter → settle → re-enter roll.
+
 ## Ecosystem tags
 
 | Field | Value |
@@ -86,7 +173,7 @@ Every one of these is verifiable from the repo or the chain:
 - Deployed and live on Shannon; constructor wiring checked against the real
   protocol addresses (`npm run verify-vault`)
 - A complete roll executed on the live chain: enter, settle, re-enter, unattended
-- 27 tests against live Shannon state, including both sides of the book and the
+- 31 tests against live Shannon state, including both sides of the book and the
   exact fill prices the venue's grid produces
 - `closePosition` signed from a browser wallet, paying out on chain
 - Zero-fee, tick- and lot-snapped IOC entry, read from the pool's own grid

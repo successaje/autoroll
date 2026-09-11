@@ -140,7 +140,7 @@ connect prompt, the live position just appears.
 > For the ecosystem the maths is simple: one tap generates a trade every window,
 > indefinitely. One user is a thousand trades a day.
 >
-> Deployed on Shannon, twenty-seven tests against the live chain, running right
+> Deployed on Shannon, thirty-one tests against the live chain, running right
 > now. AutoRoll — perpetual event contracts on dreamDEX."
 
 The watch link is the best closing shot you have. It turns "trust my recording"
@@ -174,7 +174,7 @@ resolve on cue — put it on screen.
 
 ## Backup shots
 
-- `forge test --fork-url ...` — 27 green against live Shannon
+- `forge test --fork-url ...` — 31 green against live Shannon
 - `npm run check:abi` — every selector matching the compiled contract
 - `npx tsx scripts/verify-vault.ts <vault>` — constructor wiring against the real protocol
 - The keeper's discovery stream: a finalize/create pair per asset, every minute
