@@ -312,3 +312,93 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ------------------------------------------------------------------ landing */
+
+/*  Namespaced `lp-` rather than `hero-`: `.hero` is already the position
+    card's equity row, and reusing it silently turned this card into a flex row.
+
+    The counter is the argument, so it gets the type budget usually reserved
+    for the position's equity. Everything else here defers to it. */
+.lp {
+  display: flex;
+  flex-direction: column; gap: 14px; }
+
+.lp-live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lp-count {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lp-n {
+  font: 700 68px/0.9 var(--mono);
+  letter-spacing: -3px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums; /* so the number does not jitter as it climbs */
+}
+
+.lp-unit {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.lp-since {
+  margin: -6px 0 0;
+  font: 400 12px/1.5 var(--mono);
+  color: var(--text-muted);
+}
+
+.lp-pitch {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.lp-pitch strong { color: var(--text-primary); font-weight: 600; }
+
+.lp-cta { display: flex; flex-direction: column; gap: 8px; }
+.lp-cta .cta { text-align: center; text-decoration: none; display: block; }
+
+.sub.err { color: var(--critical); }
+.txt.mono { font-family: var(--mono); color: var(--text-secondary); }
+
+/*  Mobile base: a plain stack. The desktop rule below turns it into a grid.
+    Without this the wrapper would swallow the shell's flex gap. */
+.deck { display: flex; flex-direction: column; gap: 14px; }
+.col  { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* ------------------------------------------------------------------ desktop */
+
+/*  Mobile-first: one column everywhere below this. Above it the single column
+    is stranded in the middle of a monitor, so the shell widens and the cards
+    pair up rather than stacking into a strip. */
+@media (min-width: 900px) {
+  .shell { max-width: 900px; padding-top: 22px; }
+
+  .shell > .card,
+  .shell > section.card { break-inside: avoid; }
+
+  .deck {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .lp-n { font-size: 86px; }
+  .lp-pitch { font-size: 15.5px; }
+  .lp-cta { flex-direction: row; }
+  .lp-cta .cta { flex: 1; }
+}

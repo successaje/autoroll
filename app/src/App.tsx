@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OpenCard, type OpenRequest } from "./components/OpenCard";
 import { PositionCard } from "./components/PositionCard";
 import { ConnectCard } from "./components/ConnectCard";
+import { Landing } from "./components/Landing";
 import { Feed } from "./components/Feed";
 import { onChainMode, VAULT, shannon } from "./lib/chain";
 import { useWallet } from "./lib/useWallet";
@@ -71,7 +72,11 @@ function Body({
   const showOpen = !readOnly && (!current || !current.active);
 
   return (
-    <>
+    /*  One column on a phone. On a wide screen the position leads on the left
+        and the activity sits beside it, rather than the whole product being a
+        460px strip down the middle of a monitor. */
+    <div className="deck">
+      <div className="col">
       {/* An active position is the whole screen; once it closes the open card
           leads again and the finished run drops below it as a result. */}
       {current?.active && (
@@ -94,11 +99,15 @@ function Body({
         />
       )}
 
-      <section className="card">
-        <h2 style={{ marginBottom: 6 }}>Activity</h2>
-        <Feed feed={feed} decimals={decimals} />
-      </section>
-    </>
+      </div>
+
+      <div className="col">
+        <section className="card">
+          <h2 style={{ marginBottom: 6 }}>Activity</h2>
+          <Feed feed={feed} decimals={decimals} />
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -163,7 +172,9 @@ function OnChain() {
 
   const badge = (
     <span className="badge" title={VAULT}>
-      <span className={`dot ${ready ? "on" : "warn"}`} />
+      {/* Amber means "your wallet needs attention". On the landing there is no
+          wallet yet and nothing is wrong, so it stays neutral there. */}
+      <span className={`dot ${ready ? "on" : wallet.account ? "warn" : ""}`} />
       {ready
         ? `${wallet.account!.slice(0, 6)}…${wallet.account!.slice(-4)}`
         : spectating
@@ -175,7 +186,11 @@ function OnChain() {
   return (
     <Shell badge={badge}>
       {!ready && !spectating ? (
-        <ConnectCard wallet={wallet} />
+        wallet.account && !wallet.onRightChain ? (
+          <ConnectCard wallet={wallet} />
+        ) : (
+          <Landing wallet={wallet} />
+        )
       ) : (
         <>
           {error && (
