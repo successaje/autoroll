@@ -8,3 +8,7 @@ contracts/broadcast/
 app/node_modules/
 app/dist/
 .env.local
+
+# Submission working documents — pitch copy and internal notes, not part of the build.
+PROJECT.md
+SUBMISSION.md

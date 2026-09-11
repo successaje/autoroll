@@ -1,6 +1,17 @@
 import { EquityCurve } from "./EquityCurve";
 import { money, pnl } from "../lib/format";
 import type { Position, RollerEvent } from "../lib/types";
+import { useEffect, useState } from "react";
+
+function useCycle() {
+  const calc = () => Math.max(1, 60 - Math.floor((Date.now() / 1000) % 60));
+  const [seconds, setSeconds] = useState(calc);
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds(calc()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  return seconds;
+}
 
 export function PositionCard({
   position,
@@ -27,6 +38,7 @@ export function PositionCard({
   const wins = position.history.filter((h) => h.won).length;
   const exposed = Boolean(position.marketId);
   const stateLabel = !position.active ? "closed" : exposed ? "in a window" : "between windows";
+  const cycleSeconds = useCycle();
 
   return (
     <section className="card stack">
@@ -67,14 +79,17 @@ export function PositionCard({
 
       {position.active && (
         <div className="window">
+          <div className={`window-orbit ${exposed ? "live" : ""}`} aria-hidden="true">
+            <span />
+          </div>
           <div className="meta">
-            <div className="name">{lastEntered && exposed ? lastEntered.symbol : "next window"}</div>
+            <div className="name">{lastEntered && exposed ? lastEntered.symbol : exposed ? "Live event contract" : "Next event contract"}</div>
             <div className="state">
               {exposed
                 ? lastEntered
                   ? `Holding ${position.up ? "Up" : "Down"} at ${lastEntered.price.toFixed(3)} · ${money(position.atRisk, decimals)} staked`
-                  : "Holding"
-                : "Waiting for the next window to open"}
+                  : `Exposure is live · ${money(position.atRisk, decimals)} at risk`
+                : `Awaiting an eligible entry · next 60s cycle in about ${cycleSeconds}s`}
             </div>
           </div>
         </div>
@@ -88,7 +103,7 @@ export function PositionCard({
         <p className="sub">Rolling. Connect the owning wallet to stop it.</p>
       ) : (
         <p className="sub">
-          Closed after {position.rolls} {position.rolls === 1 ? "roll" : "rolls"}.
+          Closed after {position.rolls} {position.rolls === 1 ? "roll" : "rolls"}. Final payout is reflected above.
         </p>
       )}
     </section>

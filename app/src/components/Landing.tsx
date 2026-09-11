@@ -1,17 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Wallet } from "../lib/useWallet";
 import { useWindows } from "../lib/useWindows";
-import { shannon } from "../lib/chain";
-
-const DEMO = "0x60eF148485C2a5119fa52CA13c52E9fd98F28e87";
+import { shannon, VAULT } from "../lib/chain";
 
 /**
- *  The first screen anybody sees, and the only one most will.
- *
- *  It does not describe the problem, it runs it. Every number here is a real
- *  settlement on Somnia, counted from the moment the page opened — so the
- *  argument for the product is made by the chain while the visitor reads,
- *  rather than asserted by us. No wallet is involved in any of it.
+ * The protocol itself supplies the proof point: the screen counts real market
+ * lifecycle events without implying that every one belongs to AutoRoll.
  */
 export function Landing({ wallet }: { wallet: Wallet }) {
   const { events, expired, opened, connected, seeded } = useWindows();
@@ -56,37 +50,42 @@ export function Landing({ wallet }: { wallet: Wallet }) {
         </p>
 
         <p className="lp-pitch">
-          Every expiry above ended somebody's position. Holding a view through them
-          means a fresh signature, every window, forever — so nobody does, and these
-          markets belong to bots.
-          <strong> AutoRoll needs one signature, ever.</strong>
+          Event contracts settle quickly. Staying in the same BTC or ETH view would
+          normally mean returning for every new market. <strong>AutoRoll handles the
+          settlement and the next eligible entry after you approve and open once.</strong>
         </p>
+
+        <div className="lp-proof" aria-label="How AutoRoll works">
+          <span><b>1</b> Approve tUSDC</span>
+          <span><b>2</b> Open a view</span>
+          <span><b>3</b> Keeper rolls it</span>
+        </div>
 
         <div className="lp-cta">
           {wallet.available ? (
             <button className="cta" onClick={wallet.connect} disabled={wallet.connecting}>
               {wallet.connecting ? "Check your wallet…" : "Open a position"}
             </button>
-          ) : (
-            <a className="cta" href={`?watch=${DEMO}`}>
-              Watch a live position
+          ) : VAULT ? (
+            <a className="cta" href={`${shannon.blockExplorers.default.url}/address/${VAULT}`} target="_blank" rel="noreferrer">
+              View the live vault
             </a>
-          )}
-          <a className="cta ghost" href={`?watch=${DEMO}`}>
-            {wallet.available ? "Watch one instead" : "No wallet needed"}
+          ) : null}
+          <a className="cta ghost" href="#windows">
+            See live market activity
           </a>
         </div>
 
         {wallet.error && <p className="sub err">{wallet.error}</p>}
         {!wallet.available && (
           <p className="sub">
-            No injected wallet here — the watch view needs none. To open a position,
-            use a browser with MetaMask and the app will add {shannon.name} for you.
+            No injected wallet here. To open a position, use a browser with MetaMask;
+            the app will add {shannon.name} and use test tUSDC.
           </p>
         )}
       </section>
 
-      <section className="card">
+      <section className="card" id="windows">
         <h2 style={{ marginBottom: 6 }}>Windows, right now</h2>
         {events.length === 0 ? (
           <p className="empty">Watching {shannon.name} for the next settlement…</p>
@@ -97,8 +96,8 @@ export function Landing({ wallet }: { wallet: Wallet }) {
                 {/* Seeded rows carry no timestamp - they are up to 90s old, and calling
                     them "just now" would be a small lie on every reload. */}
                 <time>{e.at ? new Date(e.at).toLocaleTimeString() : "recent"}</time>
-                <span className={`tag ${e.kind === "expired" ? "lost" : "won"}`}>
-                  {e.kind === "expired" ? "EXPIRED" : "OPENED"}
+                <span className={`tag ${e.kind === "expired" ? "void" : "won"}`}>
+                  {e.kind === "expired" ? "SETTLED" : "OPENED"}
                 </span>
                 <span className="txt mono">#{short(e.marketId)}</span>
               </div>

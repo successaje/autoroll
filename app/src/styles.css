@@ -42,7 +42,7 @@ body {
 }
 
 .shell {
-  max-width: 460px;
+  max-width: 520px;
   margin: 0 auto;
   padding: 14px 14px calc(28px + env(safe-area-inset-bottom));
   display: flex;
@@ -61,12 +61,15 @@ body {
 
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 9px;
   font-weight: 650;
   letter-spacing: -0.02em;
   font-size: 19px;
 }
+
+.brand img { width: 27px; height: 27px; display: block; }
+.brand > div { display: flex; align-items: baseline; gap: 8px; }
 
 .brand small {
   font-weight: 500;
@@ -111,7 +114,7 @@ body {
   color: var(--text-secondary);
 }
 
-.sub { margin: 0; font-size: 12.5px; color: var(--text-muted); }
+.sub { margin: 0; font-size: 13px; color: var(--text-muted); }
 
 /* --------------------------------------------------------------- open card */
 
@@ -208,6 +211,23 @@ body {
   color: var(--text-secondary);
 }
 .chip[aria-pressed="true"] { border-color: var(--series-1); color: var(--text-primary); }
+.risk-chip[aria-pressed="true"] { border-color: var(--series-2); color: #ffb196; }
+
+.policy-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--hairline);
+}
+.policy-summary span { padding: 9px 8px; background: var(--surface-2); font-size: 12px; color: var(--text-muted); }
+.policy-summary b { display: block; color: var(--text-primary); font: 650 14px var(--mono); margin-bottom: 2px; }
+
+.risk-note { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--series-2) 55%, var(--hairline)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--series-2) 9%, var(--surface-2)); color: var(--text-secondary); font-size: 13px; line-height: 1.4; cursor: pointer; }
+.risk-note input { margin: 3px 0 0; accent-color: var(--series-2); flex: none; }
+.risk-note b { color: #ffb196; }
 
 .cta {
   appearance: none;
@@ -260,6 +280,11 @@ body {
   padding: 12px 14px; border-radius: var(--radius-sm);
   background: var(--surface-2); border: 1px solid var(--hairline);
 }
+.window-orbit { width: 30px; height: 30px; border: 3px dotted var(--text-muted); border-radius: 50%; flex: none; display: grid; place-items: center; opacity: .72; }
+.window-orbit span { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+.window-orbit.live { border-color: var(--series-1); opacity: 1; animation: orbit 4s linear infinite; }
+.window-orbit.live span { background: var(--series-1); }
+@keyframes orbit { to { transform: rotate(360deg); } }
 .window .meta { flex: 1; min-width: 0; }
 .window .name { font-family: var(--mono); font-size: 12.5px; color: var(--text-secondary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -368,6 +393,10 @@ body {
 }
 .lp-pitch strong { color: var(--text-primary); font-weight: 600; }
 
+.lp-proof { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.lp-proof span { color: var(--text-muted); font-size: 12px; line-height: 1.35; }
+.lp-proof b { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 4px; border-radius: 50%; background: var(--surface-3); color: var(--series-1); font: 700 11px var(--mono); }
+
 .lp-cta { display: flex; flex-direction: column; gap: 8px; }
 .lp-cta .cta { text-align: center; text-decoration: none; display: block; }
 
@@ -385,7 +414,7 @@ body {
     is stranded in the middle of a monitor, so the shell widens and the cards
     pair up rather than stacking into a strip. */
 @media (min-width: 900px) {
-  .shell { max-width: 900px; padding-top: 22px; }
+  .shell { max-width: 980px; padding-top: 22px; }
 
   .shell > .card,
   .shell > section.card { break-inside: avoid; }

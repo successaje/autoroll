@@ -5,7 +5,7 @@ import type { RollerEvent } from "../lib/types";
  *  status hues never do the work alone. */
 export function Feed({ feed, decimals }: { feed: RollerEvent[]; decimals: number }) {
   if (feed.length === 0) {
-    return <p className="empty">Nothing yet. Open a position and the rolls will show up here.</p>;
+    return <p className="empty">No completed rolls yet. Entries and settlements will appear here.</p>;
   }
 
   return (

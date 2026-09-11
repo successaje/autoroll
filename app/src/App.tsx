@@ -30,17 +30,17 @@ function Shell({
   return (
     <main className="shell">
       <header className="topbar">
-        <div className="brand">
-          AutoRoll <small>perpetual event contracts</small>
+        <div className="brand" aria-label="AutoRoll continuous event contracts">
+          <img src="/icon.png" alt="" />
+          <div>AutoRoll <small>continuous event contracts</small></div>
         </div>
         {badge}
       </header>
       {children}
       <p className="foot">
         {note}
-        Windows on Somnia Shannon roll every 60 seconds. dreamDEX charges zero maker,
-        taker and settlement fees — which is the only reason rolling a position
-        hundreds of times is worth anything at the end.
+        Shannon testnet · event windows typically roll every 60 seconds. AutoRoll only
+        enters when its limit can be filled; a missed window leaves funds in the vault.
       </p>
     </main>
   );
@@ -210,7 +210,7 @@ function OnChain() {
             readOnly={spectating}
           />
           <div className="row" style={{ padding: "0 4px" }}>
-            <span className="sub">Balance {money(balance.toString(), decimals)} tUSDC</span>
+            <span className="sub">Test tUSDC balance {money(balance.toString(), decimals)}</span>
             {!spectating && (
               <button
                 className="chip"
