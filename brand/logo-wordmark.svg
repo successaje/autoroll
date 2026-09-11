@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 340" width="1060" height="340">
+  
+  <g transform="translate(120 62.0) scale(0.8438)">
+  <path d="M 138.00 44.60 A 84 84 0 0 1 168.93 54.65" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="1.000"/>
+  <path d="M 185.12 66.41 A 84 84 0 0 1 204.23 92.71" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.918"/>
+  <path d="M 210.41 111.74 A 84 84 0 0 1 210.41 144.26" fill="none" stroke="#d95926" stroke-width="19" stroke-linecap="round" opacity="0.836"/>
+  <path d="M 204.23 163.29 A 84 84 0 0 1 185.12 189.59" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.753"/>
+  <path d="M 168.93 201.35 A 84 84 0 0 1 138.00 211.40" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.671"/>
+  <path d="M 118.00 211.40 A 84 84 0 0 1 87.07 201.35" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.589"/>
+  <path d="M 70.88 189.59 A 84 84 0 0 1 51.77 163.29" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.507"/>
+  <path d="M 45.59 144.26 A 84 84 0 0 1 45.59 111.74" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.424"/>
+  <path d="M 51.77 92.71 A 84 84 0 0 1 70.88 66.41" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.342"/>
+  <path d="M 87.07 54.65 A 84 84 0 0 1 118.00 44.60" fill="none" stroke="#3987e5" stroke-width="19" stroke-linecap="round" opacity="0.260"/>
+  </g>
+  <text x="400" y="168" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, system-ui, sans-serif"
+        font-size="100" font-weight="700" letter-spacing="-3.5" fill="#f4f4f2">AutoRoll</text>
+  <text x="406" y="222" font-family="ui-monospace, SF Mono, JetBrains Mono, Menlo, monospace"
+        font-size="31" letter-spacing="1.5" fill="#6e6f76">perpetual event contracts</text>
+</svg>
