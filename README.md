@@ -8,10 +8,9 @@ every window, forever — so the entire retail audience for these markets is
 structurally locked out, and only bots can hold a view.
 
 AutoRoll collapses the infinite chain of expiring windows into **one position that
-never expires**. The user taps once. An on-chain vault does the rest: when a window
-resolves, Somnia reactivity calls the vault in the same block, the vault redeems the
-winning outcome and rests a bid on the successor window. No keeper, no cron, no
-second signature.
+never expires**. The user approves and opens once. An on-chain vault does the rest:
+when a window resolves the vault redeems the winning outcome and enters the
+successor — no further signature, ever.
 
 Two properties of dreamDEX make this possible, and neither is portable:
 
@@ -21,9 +20,51 @@ Two properties of dreamDEX make this possible, and neither is portable:
 - **On-chain reactivity.** A contract can subscribe to `MarketFinalized` and be
   invoked by the validators as a synthetic transaction, with no off-chain service.
 
-Cold start is handled by the venue's **mint-a-pair** path: a resting Up bid crosses a
-resting Down bid with no seller at all, so a brand-new window fills even with an
-empty book and nobody holding inventory.
+**Two drivers, one set of internals.** The vault ships a reactivity subscription
+*and* a pair of permissionless entry points (`pokeFinalized` / `pokeCreated`) that
+run the identical code from an ordinary transaction. Reactivity is the fast path;
+the poke entries are the backstop for a handler that ran out of gas, and the way a
+vault runs before anyone has parked the 32 STT a subscription requires. Anyone can
+drive any vault — it never depends on the author being online. **The vault deployed
+on Shannon today is keeper-driven, not subscribed.**
+
+Entry is **immediate-or-cancel**, never a resting order: a remainder left on the
+book holds escrow the vault cannot attribute back to one position when the window
+expires, which silently books a filled-nothing roll as a total loss. IOC either
+fills now or commits nothing.
+
+---
+
+## Quick start
+
+`contracts/lib/forge-std` is a submodule, so clone with `--recursive` or the
+contracts will not build:
+
+```bash
+git clone --recursive https://github.com/successaje/autoroll.git
+cd autoroll
+npm install && (cd app && npm install)
+forge build --root contracts
+```
+
+Already cloned without it? `git submodule update --init --recursive`.
+
+Run the test suite — every test runs against **forked live Shannon state**, so it
+needs network:
+
+```bash
+forge test --root contracts --fork-url https://api.infra.testnet.somnia.network/
+```
+
+Run the app against the deployed vault:
+
+```bash
+cd app && npm run dev
+```
+
+Anything that signs needs `PRIVATE_KEY` in `.env` (see `.env.example`). Use a
+throwaway key — `npx tsx scripts/preflight.ts <address>` checks it holds nothing
+on mainnet before you spend with it.
 
 ---
 
@@ -49,10 +90,15 @@ off a docs page.
 forge test --root contracts --fork-url https://api.infra.testnet.somnia.network/
 ```
 
-Not yet verified: the injected-wallet handshake itself (`eth_requestAccounts`,
-`wallet_addEthereumChain`, and the two signatures). That needs a browser
-extension driving a funded key, so it is the one part of the wallet path that has
-been written but not exercised.
+Since verified on chain: the injected-wallet handshake. `closePosition`
+(selector `0xa126d601`) was signed from a browser wallet and paid out 41.8465
+tUSDC — [`0xba8baa…9df24`](https://shannon-explorer.somnia.network/tx/0xba8baa2c4f02639801313daf6b28dc3931b3d0be8c033d0c307f610d4969df24).
+That transaction also exercised the fix for the stranded-close defect below: the
+position was between windows, so a harvest that would settle it could never come.
+
+Still unexercised: `openPosition` through the browser. It is a different selector
+and a two-transaction flow (ERC-20 approve, then open), so closing one does not
+prove it.
 
 Reproduce:
 
