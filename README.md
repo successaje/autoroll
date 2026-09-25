@@ -49,6 +49,10 @@ forge build --root contracts
 
 Already cloned without it? `git submodule update --init --recursive`.
 
+`npm install` has to come **before** `forge build`, even if you only care about
+the contracts: Somnia's reactivity contracts ship as an npm package, so
+`node_modules` is one of Foundry's lib roots.
+
 Run the test suite — every test runs against **forked live Shannon state**, so it
 needs network:
 

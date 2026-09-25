@@ -1,7 +1,12 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["/Users/finisher/Documents/github/autoroll/node_modules", "lib"]
+# Relative, never absolute. An absolute path here pins the whole project to one
+# machine at one location: the solc allow-list is built from `libs`, so a clone
+# anywhere else fails with "File outside of allowed directories" even after
+# `npm install`. The reactivity contracts ship as an npm package, which is why
+# node_modules is a lib root at all.
+libs = ["../node_modules", "lib"]
 solc = "0.8.30"
 optimizer = true
 optimizer_runs = 200
