@@ -166,6 +166,24 @@ contract AutoRollVaultForkTest is Test {
         vault.sweepNative(1 ether);
     }
 
+    function test_sweepCannotRemoveUserCollateral() public {
+        vm.prank(user);
+        ITestUsdc(TEST_USDC).faucet(1e6);
+
+        vm.prank(user);
+        IERC20(TEST_USDC).transfer(address(vault), 1e6);
+
+        vm.expectRevert(AutoRollVault.ProtectedToken.selector);
+        vault.sweep(TEST_USDC, 1e6);
+
+        assertEq(IERC20(TEST_USDC).balanceOf(address(vault)), 1e6);
+    }
+
+    function test_sweepCannotRemoveOutcomeInventory() public {
+        vm.expectRevert(AutoRollVault.ProtectedToken.selector);
+        vault.sweep(OUTCOME_TOKEN, 1);
+    }
+
     /// The vault must accept a plain transfer too - some funding paths do not
     /// call `fundReactivity`.
     function test_vaultAcceptsPlainNativeTransfer() public {

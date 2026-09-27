@@ -347,7 +347,7 @@ LOST  -8.15 · bankroll 41.85
 Every figure is the contract's own: bankroll 41846480, principal 50000000,
 `atRisk` and `quantity` zero between windows, one roll, none won.
 
-**`?watch=0x…` opens any position read-only, with no wallet at all.** A running
+**`/app/portfolio?watch=0x…` opens any position read-only, with no wallet at all.** A running
 position is the interesting thing to show somebody, and making them install a
 wallet before they can look at it is a bad trade. It is also the only way to see
 the vault on a device with no injected provider.

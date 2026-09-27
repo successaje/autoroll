@@ -13,11 +13,15 @@
     "dev:app": "npm --prefix app run dev",
     "demo": "node scripts/demo.mjs",
     "keeper": "tsx src/keeper.ts",
+    "keeper:hosted": "tsx src/keeper.ts --live --verbose",
+    "keeper:mac:install": "zsh scripts/install-keeper-mac.sh",
+    "keeper:mac:status": "zsh scripts/keeper-mac-status.sh",
     "preflight": "tsx scripts/preflight.ts",
     "deploy:shannon": "tsx scripts/deploy.ts",
     "subscribe": "tsx scripts/subscribe.ts",
     "check:abi": "tsx scripts/check-abi.ts",
     "mobile:serve": "node scripts/mobile-preview.mjs",
+    "showcase:check": "node scripts/showcase-check.mjs",
     "build": "npm --prefix app run build"
   },
   "devDependencies": {

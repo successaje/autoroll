@@ -1,293 +1,125 @@
-import { NavigationProvider, useNavigation } from "./lib/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { OpenCard, type OpenRequest } from "./components/OpenCard";
-import { PositionCard } from "./components/PositionCard";
-import { ConnectCard } from "./components/ConnectCard";
-import { Landing } from "./components/Landing";
-import { Feed } from "./components/Feed";
-import { onChainMode, VAULT, shannon } from "./lib/chain";
+import { NavigationProvider, useNavigation } from "./lib/navigation";
 import { useWallet } from "./lib/useWallet";
 import { useVault } from "./lib/useVault";
-import { DEFAULT_POLICY, STREAK_POLICY } from "./lib/policy";
+import { useWindows } from "./lib/useWindows";
 import { closePosition, faucet, openPosition } from "./lib/vault";
-import { money } from "./lib/format";
-import type { Position, RollerEvent, Snapshot } from "./lib/types";
+import { DEFAULT_POLICY } from "./lib/policy";
+import { onChainMode, shannon, VAULT } from "./lib/chain";
+import type { RollerEvent, Snapshot } from "./lib/types";
+import {
+  ActivityScreen,
+  AppShell,
+  MarketingSite,
+  MarketScreen,
+  MarketsScreen,
+  PortfolioScreen,
+  PositionScreen,
+  StatusScreen,
+} from "./components/ProductExperience";
 
 export default function App() {
-  return <NavigationProvider>{onChainMode ? <OnChain /> : <OffChain />}</NavigationProvider>;
+  return <NavigationProvider><Router /></NavigationProvider>;
 }
 
-/* ------------------------------------------------------------------ shared */
-
-function Shell({
-  children,
-  badge,
-  note,
-}: {
-  children: React.ReactNode;
-  badge: React.ReactNode;
-  note?: React.ReactNode;
-}) {
-  const { page, go, back } = useNavigation();
-  const [online, setOnline] = useState(navigator.onLine);
-  useEffect(() => {
-    const sync = () => setOnline(navigator.onLine);
-    window.addEventListener("online", sync);
-    window.addEventListener("offline", sync);
-    return () => { window.removeEventListener("online", sync); window.removeEventListener("offline", sync); };
-  }, []);
-  return (
-    <main className="shell">
-      <header className="topbar">
-        <div className="brand" aria-label="AutoRoll continuous event contracts">
-          <img src="/icon.png" alt="" />
-          <div>AutoRoll <small>continuous event contracts</small></div>
-        </div>
-        {badge}
-      </header>
-      <div className="row page-heading">
-        <h1 tabIndex={-1}>{page === "position" ? "Position" : page === "trade" ? "Trade" : "Activity"}</h1>
-        {(page !== "position" || history.state?.autorollDepth > 0) && <button className="chip" onClick={back}>← Back</button>}
-      </div>
-      {!online && <section className="card" role="status">You’re offline. Connect to refresh balances, activity and wallet actions.</section>}
-      {online ? children : <section className="card empty">AutoRoll’s app shell is available offline. Live positions and trading require a connection.</section>}
-      <nav className="bottom-nav" aria-label="Main navigation">
-        {(["position", "trade", "activity"] as const).map(item => <button key={item} aria-current={page === item ? "page" : undefined} onClick={() => go(item)}>{item === "position" ? "Position" : item === "trade" ? "Trade" : "Activity"}</button>)}
-      </nav>
-      <p className="foot">
-        {note}
-        Shannon testnet · event windows typically roll every 60 seconds. AutoRoll only
-        enters when its limit can be filled; a missed window leaves funds in the vault.
-      </p>
-    </main>
-  );
+function Router() {
+  const { route } = useNavigation();
+  const windows = useWindows();
+  if (route.name === "home") return <MarketingSite markets={windows} />;
+  return onChainMode ? <OnChainApp markets={windows} /> : <OffChainApp markets={windows} />;
 }
 
-function Body({
-  positions,
-  decimals,
-  feed,
-  lastEntered,
-  onOpen,
-  onClose,
-  busy,
-  step,
-  readOnly,
-}: {
-  positions: Position[];
-  decimals: number;
-  feed: RollerEvent[];
-  lastEntered: Extract<RollerEvent, { kind: "entered" }> | null;
-  onOpen: (r: OpenRequest) => void;
-  onClose: (id: number) => void;
-  busy: boolean;
-  step?: string | null;
-  /** Watching somebody else's position: render it, offer no controls. */
-  readOnly?: boolean;
-}) {
-  const { page, go } = useNavigation();
-  const current = positions.find((p) => p.active) ?? positions.at(-1) ?? null;
-  return <div className="deck workspace-deck">
-    <div className="col">
-      {page === "position" && (current ? <PositionCard position={current} decimals={decimals} lastEntered={lastEntered} onClose={!readOnly && current.active ? () => onClose(current.id) : undefined} /> : <section className="card stack"><h2>No position yet</h2><p className="sub">Open a view to follow it across eligible windows.</p>{!readOnly && <button className="cta" onClick={() => go("trade")}>Open a position</button>}</section>)}
-      {page === "trade" && (readOnly ? <section className="card empty">You’re watching this wallet. Connect your own wallet to trade.</section> : current?.active ? <section className="card stack"><h2>Your position is running</h2><p className="sub">Close your current position before opening another.</p><button className="cta ghost" onClick={() => go("position")}>View position</button></section> : <OpenCard onOpen={onOpen} busy={busy} step={step} />)}
-      {page === "activity" && <section className="card"><h2>Activity</h2><Feed feed={feed} decimals={decimals} /></section>}
-    </div>
-    {page !== "activity" && <section className="card desktop-activity"><h2>Activity</h2><Feed feed={feed} decimals={decimals} /></section>}
-  </div>;
-}
-
-/* ------------------------------------------------------------- on-chain mode */
-
-/**
- *  `?watch=0x…` opens a position read-only, with no wallet involved.
- *
- *  Worth having beyond debugging: a running position is the interesting thing
- *  to show somebody, and requiring them to install a wallet first to look at it
- *  is a bad trade. It is also the only way to see the vault's state on a device
- *  that has no injected provider at all.
- */
 function watchParam(): `0x${string}` | null {
-  const v = new URLSearchParams(window.location.search).get("watch");
-  return v && /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as `0x${string}`) : null;
+  const value = new URLSearchParams(location.search).get("watch");
+  return value && /^0x[0-9a-fA-F]{40}$/.test(value) ? value as `0x${string}` : null;
 }
 
-function OnChain() {
-  const { go } = useNavigation();
+function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
+  const { route, go } = useNavigation();
   const wallet = useWallet();
+  const watch = useMemo(watchParam, []);
   const ready = Boolean(wallet.account) && wallet.onRightChain;
-  const watching = useMemo(watchParam, []);
-  const spectating = !ready && watching !== null;
-  const { positions, balance, decimals, feed, error, refresh } = useVault(
-    ready ? wallet.account : watching,
-  );
+  const target = ready ? wallet.account : watch;
+  const { positions, balance, decimals, feed, error, loading, stale, refresh } = useVault(target);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
-
-  async function open(r: OpenRequest) {
-    if (!wallet.account) return;
-    setBusy(true);
-    try {
-      await openPosition(
-        wallet.account,
-        r.asset,
-        r.up,
-        r.stake,
-        r.streak ? STREAK_POLICY : DEFAULT_POLICY,
-        setStep,
-      );
-      await refresh();
-      go("position");
-    } catch (err: any) {
-      // 4001 is the user dismissing the wallet prompt — not an error state.
-      if (err?.code !== 4001) setStep(err?.shortMessage ?? err?.message ?? "Transaction failed");
-      return;
-    } finally {
-      setBusy(false);
-      setTimeout(() => setStep(null), 2_500);
-    }
-  }
-
-  async function close(id: number) {
-    if (!wallet.account) return;
-    try {
-      await closePosition(wallet.account, id);
-      await refresh();
-    } catch {
-      /* user dismissed */
-    }
-  }
-
-  const badge = (
-    <span className="badge" title={VAULT}>
-      {/* Amber means "your wallet needs attention". On the landing there is no
-          wallet yet and nothing is wrong, so it stays neutral there. */}
-      <span className={`dot ${ready ? "on" : wallet.account ? "warn" : ""}`} />
-      {ready
-        ? `${wallet.account!.slice(0, 6)}…${wallet.account!.slice(-4)}`
-        : spectating
-          ? `watching ${watching!.slice(0, 6)}…${watching!.slice(-4)}`
-          : shannon.name}
-    </span>
-  );
-
-  return (
-    <Shell badge={badge}>
-      {!ready && !spectating ? (
-        wallet.account && !wallet.onRightChain ? (
-          <ConnectCard wallet={wallet} />
-        ) : (
-          <Landing wallet={wallet} />
-        )
-      ) : (
-        <>
-          {error && (
-            <section className="card">
-              <p className="sub" style={{ color: "var(--critical)" }}>{error}</p>
-            </section>
-          )}
-          <Body
-            positions={positions}
-            decimals={decimals}
-            feed={feed}
-            lastEntered={null}
-            onOpen={open}
-            onClose={close}
-            busy={busy}
-            step={step}
-            readOnly={spectating}
-          />
-          <div className="row" style={{ padding: "0 4px" }}>
-            <span className="sub">Test tUSDC balance {money(balance.toString(), decimals)}</span>
-            {!spectating && (
-              <button
-                className="chip"
-                onClick={() => wallet.account && faucet(wallet.account).then(refresh)}
-              >
-                Get test tUSDC
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </Shell>
-  );
-}
-
-/* ------------------------------------------------------------ off-chain mode */
-
-/** Drives the off-chain roller instead of a deployed vault. Identical product;
- *  it exists so the whole thing is demonstrable before the vault is deployed. */
-function OffChain() {
-  const { go } = useNavigation();
-  const [snap, setSnap] = useState<Snapshot | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [opened, setOpened] = useState<{ asset: string; up: boolean; stake: number } | null>(null);
 
   useEffect(() => {
-    const es = new EventSource("/api/stream");
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
-    es.onmessage = (m) => {
-      setSnap(JSON.parse(m.data));
-      setConnected(true);
-    };
-    return () => es.close();
-  }, []);
+    if (route.name !== "markets" || loading || !ready || positions.length === 0) return;
+    if (new URLSearchParams(location.search).get("source") === "pwa") go({ name: "portfolio" }, true);
+  }, [route.name, loading, ready, positions.length, go]);
 
-  const positions = snap?.positions ?? [];
-  const current = positions.find((p) => p.active) ?? positions.at(-1) ?? null;
-
-  const lastEntered = useMemo(() => {
-    if (!snap || !current) return null;
-    const hits = snap.feed.filter(
-      (e): e is Extract<RollerEvent, { kind: "entered" }> => e.kind === "entered" && e.id === current.id,
-    );
-    return hits.at(-1) ?? null;
-  }, [snap, current]);
-
-  async function post(path: string, body: unknown) {
-    await fetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  async function connect() {
+    if (wallet.account && !wallet.onRightChain) await wallet.switchNetwork();
+    else await wallet.connect();
   }
 
-  const badge = (
-    <span className="badge" title={connected ? "streaming" : "reconnecting"}>
-      <span className={`dot ${connected ? "on" : "warn"}`} />
-      {snap?.live ? "Live" : "Dry run"}
-    </span>
-  );
+  async function open(request: { asset: string; up: boolean; stake: number; streak: boolean }) {
+    if (!wallet.account || !wallet.onRightChain) return connect();
+    setBusy(true); setActionError(null);
+    try {
+      await openPosition(wallet.account, request.asset, request.up, request.stake, DEFAULT_POLICY, setStep);
+      await refresh();
+      setOpened({ asset: request.asset, up: request.up, stake: request.stake });
+      go({ name: "portfolio" });
+    } catch (err: any) {
+      if (err?.code !== 4001) setActionError(friendlyError(err));
+    } finally { setBusy(false); setStep(null); }
+  }
 
-  return (
-    <Shell
-      badge={badge}
-      note={
-        <>
-          Running against the off-chain roller — set <code>VITE_VAULT_ADDRESS</code> to
-          drive a deployed vault from your wallet instead.{" "}
-        </>
-      }
-    >
-      <Body
-        positions={positions}
-        decimals={snap?.decimals ?? 6}
-        feed={snap?.feed ?? []}
-        lastEntered={lastEntered}
-        onOpen={async (r) => {
-          setBusy(true);
-          try {
-            await post("/api/open", r);
-            go("position");
-          } finally {
-            setBusy(false);
-          }
-        }}
-        onClose={(id) => void post("/api/close", { id })}
-        busy={busy}
-      />
-    </Shell>
-  );
+  async function stop(id: number) {
+    if (!wallet.account) return;
+    setBusy(true); setActionError(null); setStep("Confirm stop in your wallet…");
+    try { await closePosition(wallet.account, id); await refresh(); }
+    catch (err: any) { if (err?.code !== 4001) setActionError(friendlyError(err)); }
+    finally { setBusy(false); setStep(null); }
+  }
+
+  const label = ready && wallet.account ? `${wallet.account.slice(0, 6)}…${wallet.account.slice(-4)}` : wallet.account ? "Switch network" : "Connect wallet";
+  const currentPosition = route.name === "position" ? positions.find((p) => p.id === route.id) : null;
+
+  return <AppShell route={route} accountLabel={label} onConnect={() => void connect()}>
+    {(wallet.error || error || actionError || stale) && <div className="app-alert" role="status"><div><b>{actionError ? "Action needs attention" : stale ? "Showing the last verified state" : "Connection needs attention"}</b><p>{actionError ?? wallet.error ?? error ?? "AutoRoll will keep retrying the Shannon RPC."}</p></div><button onClick={() => void refresh()}>Retry</button></div>}
+    {route.name === "markets" && <MarketsScreen markets={markets} />}
+    {route.name === "market" && <MarketScreen asset={route.asset} balance={balance} decimals={decimals} connected={ready} busy={busy} step={step} onConnect={() => void connect()} onOpen={(r) => void open(r)} />}
+    {route.name === "portfolio" && <PortfolioScreen positions={positions} decimals={decimals} loading={loading && !positions.length} success={opened} onDismissSuccess={() => setOpened(null)} />}
+    {route.name === "position" && (currentPosition ? <PositionScreen position={currentPosition} decimals={decimals} feed={feed} onStop={ready ? () => void stop(currentPosition.id) : undefined} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
+    {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}
+    {route.name === "status" && <StatusScreen connected={markets.connected} />}
+    {ready && balance === 0n && route.name !== "status" && <button className="test-funds" disabled={busy} onClick={async () => { if (!wallet.account) return; setBusy(true); try { await faucet(wallet.account); await refresh(); } finally { setBusy(false); } }}>Get test tUSDC</button>}
+  </AppShell>;
+}
+
+function OffChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
+  const { route, go } = useNavigation();
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const stream = new EventSource("/api/stream");
+    stream.onmessage = (message) => setSnapshot(JSON.parse(message.data));
+    return () => stream.close();
+  }, []);
+  const positions = snapshot?.positions ?? [];
+  const feed = snapshot?.feed ?? [];
+  const decimals = snapshot?.decimals ?? 6;
+  async function post(path: string, body: unknown) { await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); }
+  const position = route.name === "position" ? positions.find((p) => p.id === route.id) : null;
+  return <AppShell route={route} accountLabel="Dry run" onConnect={() => {}}>
+    {route.name === "markets" && <MarketsScreen markets={markets} />}
+    {route.name === "market" && <MarketScreen asset={route.asset} balance={500_000_000n} decimals={6} connected busy={busy} step={null} onConnect={() => {}} onOpen={async (request) => { setBusy(true); try { await post("/api/open", request); go({ name: "portfolio" }); } finally { setBusy(false); } }} />}
+    {route.name === "portfolio" && <PortfolioScreen positions={positions} decimals={decimals} loading={!snapshot} />}
+    {route.name === "position" && (position ? <PositionScreen position={position} decimals={decimals} feed={feed} onStop={() => void post("/api/close", { id: position.id })} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
+    {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}
+    {route.name === "status" && <StatusScreen connected={markets.connected} />}
+  </AppShell>;
+}
+
+function NotFound({ onMarkets }: { onMarkets: () => void }) { return <div className="empty-state"><span>↻</span><h2>Position not found</h2><p>This position is unavailable for the connected wallet.</p><button className="button primary" onClick={onMarkets}>Return to portfolio</button></div>; }
+function friendlyError(error: any) {
+  const message = error?.shortMessage ?? error?.message ?? "The action could not be completed.";
+  if (/insufficient/i.test(message)) return "The wallet does not have enough tUSDC or STT. Your existing vault funds are unaffected.";
+  if (/revert/i.test(message)) return "The transaction was rejected by the contract. Your funds remain safe; try refreshing the position state.";
+  return message;
 }

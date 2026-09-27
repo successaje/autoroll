@@ -25,6 +25,9 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { NET, BINARY_MODULE, TOPIC_MARKET_CREATED, TOPIC_MARKET_FINALIZED } from "./config.js";
 
 /** Somnia caps eth_getLogs at 1000 blocks — 100 seconds at 100ms blocks. */
@@ -32,6 +35,10 @@ const MAX_LOG_SPAN = 999n;
 const TICK_MS = 2_000;
 /** Comfortably above the vault's MIN_ORDER_GAS × MAX_ROLLS_PER_EVENT. */
 const POKE_GAS = 30_000_000n;
+/** Recover finalizations emitted during an ordinary hosted restart. Created
+ * events are deliberately not replayed: bidding into hundreds of expired
+ * windows would waste gas, while a pending position can simply await the next. */
+const DEFAULT_RECOVERY_BLOCKS = 10_000n;
 
 const vaultAbi = parseAbi([
   "function pokeCreated(bytes32 marketId, bytes32 asset)",
@@ -52,12 +59,27 @@ export interface KeeperOpts {
   once?: boolean;
   /** Log every module event seen, not just the ones that mean work. */
   verbose?: boolean;
+  /** How far back to recover missed finalizations after a restart. */
+  recoveryBlocks?: bigint;
+}
+
+export interface KeeperStatus {
+  state: "starting" | "healthy" | "degraded";
+  vault: Address;
+  signer: Address | null;
+  head: string | null;
+  lastSuccessfulTick: string | null;
+  lastTransaction: Hex | null;
+  lastError: string | null;
 }
 
 export class Keeper {
   private readonly publicClient;
   private readonly wallet;
   private cursor: bigint | null = null;
+  private lastSuccessfulTick: Date | null = null;
+  private lastTransaction: Hex | null = null;
+  private lastError: string | null = null;
 
   constructor(private readonly opts: KeeperOpts) {
     const url = opts.rpcUrl ?? NET.httpRpcUrl;
@@ -74,7 +96,15 @@ export class Keeper {
 
   async run(): Promise<void> {
     const head = await this.publicClient.getBlockNumber();
-    this.cursor = this.opts.fromBlock !== undefined ? this.opts.fromBlock - 1n : head;
+    if (this.opts.fromBlock !== undefined) {
+      this.cursor = this.opts.fromBlock - 1n;
+    } else {
+      const recovery = this.opts.recoveryBlocks ?? DEFAULT_RECOVERY_BLOCKS;
+      const from = head > recovery ? head - recovery : 0n;
+      log(`recovering missed finalizations from blocks ${from}–${head}`);
+      await this.recoverFinalizations(from, head);
+      this.cursor = head;
+    }
     log(
       `keeper up — vault ${this.opts.vault}, ${this.wallet ? `signing as ${this.wallet.account.address}` : "DRY RUN"}`,
     );
@@ -82,11 +112,40 @@ export class Keeper {
     for (;;) {
       try {
         await this.tick();
+        this.lastSuccessfulTick = new Date();
+        this.lastError = null;
       } catch (err) {
-        log(`tick error: ${(err as Error).message}`);
+        this.lastError = (err as Error).message;
+        log(`tick error: ${this.lastError}`);
       }
       if (this.opts.once) return;
       await sleep(TICK_MS);
+    }
+  }
+
+  status(): KeeperStatus {
+    const age = this.lastSuccessfulTick ? Date.now() - this.lastSuccessfulTick.getTime() : Infinity;
+    return {
+      state: !this.lastSuccessfulTick ? "starting" : age <= 30_000 && !this.lastError ? "healthy" : "degraded",
+      vault: this.opts.vault,
+      signer: this.wallet?.account.address ?? null,
+      head: this.cursor?.toString() ?? null,
+      lastSuccessfulTick: this.lastSuccessfulTick?.toISOString() ?? null,
+      lastTransaction: this.lastTransaction,
+      lastError: this.lastError,
+    };
+  }
+
+  private async recoverFinalizations(fromBlock: bigint, toBlock: bigint): Promise<void> {
+    let from = fromBlock;
+    while (from <= toBlock) {
+      const to = from + MAX_LOG_SPAN - 1n > toBlock ? toBlock : from + MAX_LOG_SPAN - 1n;
+      const logs = await this.publicClient.getLogs({ address: BINARY_MODULE, fromBlock: from, toBlock: to });
+      for (const entry of logs) {
+        const [topic0, marketId] = entry.topics as [Hex, Hex | undefined];
+        if (topic0 === TOPIC_MARKET_FINALIZED && marketId) await this.onFinalized(marketId);
+      }
+      from = to + 1n;
     }
   }
 
@@ -181,6 +240,7 @@ export class Keeper {
         gas: POKE_GAS,
       });
       await this.publicClient.waitForTransactionReceipt({ hash });
+      this.lastTransaction = hash;
       log(`${what} — ${hash}`);
     } catch (err) {
       // A poke is best-effort by design: it is idempotent, and the next window's
@@ -188,6 +248,20 @@ export class Keeper {
       log(`${what} FAILED: ${(err as Error).message.split("\n")[0]}`);
     }
   }
+}
+
+/** A tiny operational surface for hosted health checks. It exposes no secrets
+ * and performs no actions; it only proves that the event loop is advancing. */
+export function serveHealth(keeper: Keeper, port: number) {
+  return createServer((req, res) => {
+    if (req.url !== "/health") {
+      res.writeHead(404).end("not found");
+      return;
+    }
+    const status = keeper.status();
+    res.writeHead(status.state === "healthy" ? 200 : 503, { "content-type": "application/json" });
+    res.end(JSON.stringify(status));
+  }).listen(port, "0.0.0.0", () => log(`health server listening on :${port}/health`));
 }
 
 /**
@@ -214,9 +288,12 @@ const short = (h: string) =>
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${m}`);
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const argv = process.argv.slice(2);
-  const val = (n: string) => argv[argv.indexOf(`--${n}`) + 1];
+  const val = (n: string) => {
+    const index = argv.indexOf(`--${n}`);
+    return index >= 0 ? argv[index + 1] : undefined;
+  };
   const live = argv.includes("--live");
   const verbose = argv.includes("--verbose");
 
@@ -231,5 +308,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  await new Keeper({ vault, live, privateKey, verbose }).run();
+  const recoveryBlocks = process.env.KEEPER_RECOVERY_BLOCKS
+    ? BigInt(process.env.KEEPER_RECOVERY_BLOCKS)
+    : undefined;
+  const rpcUrl = process.env.RPC_URL ?? process.env.SHANNON_RPC;
+  const keeper = new Keeper({ vault, live, privateKey, verbose, recoveryBlocks, rpcUrl });
+  if (process.env.PORT) serveHealth(keeper, Number(process.env.PORT));
+  await keeper.run();
 }

@@ -12,7 +12,7 @@ export function Feed({ feed, decimals }: { feed: RollerEvent[]; decimals: number
     <div className="feed">
       {[...feed].reverse().slice(0, 14).map((e, i) => (
         <div className="ev" key={`${e.at}-${i}`}>
-          <time>{clock(e.at)}</time>
+          <time>{e.at > 0 ? clock(e.at) : "on-chain"}</time>
           {render(e, decimals)}
         </div>
       ))}

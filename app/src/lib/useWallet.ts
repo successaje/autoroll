@@ -9,6 +9,7 @@ export interface Wallet {
   connecting: boolean;
   error: string | null;
   connect: () => Promise<void>;
+  switchNetwork: () => Promise<void>;
   onRightChain: boolean;
 }
 
@@ -60,10 +61,21 @@ export function useWallet(): Wallet {
     setConnecting(true);
     setError(null);
     try {
-      const client = await getMetaMask();
-      const activeProvider = getProvider()!;
+      // Prefer an injected wallet when it exists. It handles add/switch network
+      // requests more reliably than routing an installed extension through a
+      // remote SDK session. The SDK remains the fallback for browsers without
+      // an injected provider (including mobile handoff).
+      let activeProvider = getProvider();
+      let accs: `0x${string}`[];
+      if (activeProvider) {
+        accs = await activeProvider.request({ method: "eth_requestAccounts" }) as `0x${string}`[];
+      } else {
+        const client = await getMetaMask();
+        activeProvider = getProvider()!;
+        const connected = await client.connect({ chainIds: [`0x${shannon.id.toString(16)}`] });
+        accs = connected.accounts;
+      }
       updateProvider(() => activeProvider);
-      const { accounts: accs } = await client.connect({ chainIds: [`0x${shannon.id.toString(16)}`] });
       setAccount(accs[0] ?? null);
       await ensureShannon(activeProvider);
       const id = (await activeProvider.request({ method: "eth_chainId" })) as string;
@@ -74,7 +86,23 @@ export function useWallet(): Wallet {
     } finally {
       setConnecting(false);
     }
-  }, [provider]);
+  }, []);
+
+  const switchNetwork = useCallback(async () => {
+    setConnecting(true);
+    setError(null);
+    try {
+      const activeProvider = getProvider();
+      if (!activeProvider) return await connect();
+      await ensureShannon(activeProvider);
+      const id = await activeProvider.request({ method: "eth_chainId" }) as string;
+      setChainId(Number.parseInt(id, 16));
+    } catch (err: any) {
+      setError(err?.code === 4001 ? null : (err?.shortMessage ?? err?.message ?? "Could not switch network"));
+    } finally {
+      setConnecting(false);
+    }
+  }, [connect]);
 
   return {
     account,
@@ -83,6 +111,7 @@ export function useWallet(): Wallet {
     connecting,
     error,
     connect,
+    switchNetwork,
     onRightChain: chainId === shannon.id,
   };
 }

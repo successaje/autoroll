@@ -1,31 +1,66 @@
-import { createContext, useContext, useEffect, useState } from "react";
-export type Page = "position" | "trade" | "activity";
-const readPage = (): Page => {
-  const page = new URLSearchParams(location.search).get("page");
-  return page === "trade" || page === "activity" ? page : "position";
-};
-const Navigation = createContext({ page: "position" as Page, go: (_: Page) => {}, back: () => {} });
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+
+export type Route =
+  | { name: "home" }
+  | { name: "markets" }
+  | { name: "market"; asset: "BTC" | "ETH" }
+  | { name: "portfolio" }
+  | { name: "position"; id: number }
+  | { name: "activity" }
+  | { name: "status" };
+
+function parseRoute(): Route {
+  const path = location.pathname.replace(/\/+$/, "") || "/";
+  const market = path.match(/^\/app\/market\/(BTC|ETH)$/i);
+  const position = path.match(/^\/app\/position\/(\d+)$/);
+  if (market) return { name: "market", asset: market[1].toUpperCase() as "BTC" | "ETH" };
+  if (position) return { name: "position", id: Number(position[1]) };
+  if (path === "/app/portfolio") return { name: "portfolio" };
+  if (path === "/app/activity") return { name: "activity" };
+  if (path === "/status") return { name: "status" };
+  if (path === "/app" || path === "/app/markets") return { name: "markets" };
+  return { name: "home" };
+}
+
+function routePath(route: Route): string {
+  switch (route.name) {
+    case "home": return "/";
+    case "markets": return "/app/markets";
+    case "market": return `/app/market/${route.asset}`;
+    case "portfolio": return "/app/portfolio";
+    case "position": return `/app/position/${route.id}`;
+    case "activity": return "/app/activity";
+    case "status": return "/status";
+  }
+}
+
+const Navigation = createContext({ route: { name: "home" } as Route, go: (_: Route, _replace?: boolean) => {}, back: () => {} });
 export const useNavigation = () => useContext(Navigation);
+
 export function NavigationProvider({ children }: { children: React.ReactNode }) {
-  const [page, setPage] = useState(readPage);
+  const [route, setRoute] = useState(parseRoute);
   useEffect(() => {
-    const sync = () => setPage(readPage());
-    window.addEventListener("popstate", sync);
-    return () => window.removeEventListener("popstate", sync);
+    const sync = () => setRoute(parseRoute());
+    addEventListener("popstate", sync);
+    return () => removeEventListener("popstate", sync);
   }, []);
-  function go(next: Page, replace = false) {
-    if (next === page && !replace) return;
-    const url = new URL(location.href);
-    url.searchParams.set("page", next);
-    url.hash = "";
-    const depth = replace ? 0 : (history.state?.autorollDepth ?? 0) + 1;
-    history[replace ? "replaceState" : "pushState"]({ ...history.state, autorollDepth: depth }, "", url);
-    setPage(next);
-    window.scrollTo(0, 0);
-  }
-  function back() {
-    if (history.state?.autorollDepth > 0) history.back();
-    else go("position", true);
-  }
-  return <Navigation.Provider value={{ page, go, back }}>{children}</Navigation.Provider>;
+  const value = useMemo(() => ({
+    route,
+    go(next: Route, replace = false) {
+      const watch = new URLSearchParams(location.search).get("watch");
+      const path = `${routePath(next)}${watch ? `?watch=${encodeURIComponent(watch)}` : ""}`;
+      if (path === location.pathname && !replace) return;
+      history[replace ? "replaceState" : "pushState"]({}, "", path);
+      setRoute(next);
+      scrollTo({ top: 0, behavior: "instant" });
+    },
+    back() {
+      if (history.length > 1) history.back();
+      else {
+        history.replaceState({}, "", "/app/markets");
+        setRoute({ name: "markets" });
+      }
+    },
+  }), [route]);
+  return <Navigation.Provider value={value}>{children}</Navigation.Provider>;
 }

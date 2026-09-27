@@ -1,4 +1,11 @@
-import { createPublicClient, createWalletClient, custom, http, defineChain, type EIP1193Provider } from "viem";
+import { createPublicClient, createWalletClient, custom, fallback, http, defineChain, type EIP1193Provider } from "viem";
+
+const configuredRpc = import.meta.env.VITE_RPC_URL as string | undefined;
+export const SHANNON_RPCS = [
+  configuredRpc,
+  "https://dream-rpc.somnia.network/",
+  "https://api.infra.testnet.somnia.network/",
+].filter((url, index, urls): url is string => Boolean(url) && urls.indexOf(url) === index);
 
 /** Somnia Shannon testnet. The protocol core is CREATE3'd, so the vault's
  *  dependencies carry the same addresses on mainnet — only collateral differs. */
@@ -8,10 +15,7 @@ export const shannon = defineChain({
   nativeCurrency: { name: "STT", symbol: "STT", decimals: 18 },
   rpcUrls: {
     default: {
-      http: [
-        (import.meta.env.VITE_RPC_URL as string | undefined) ??
-          "https://api.infra.testnet.somnia.network/",
-      ],
+      http: SHANNON_RPCS,
     },
   },
   blockExplorers: {
@@ -21,6 +25,9 @@ export const shannon = defineChain({
 });
 
 export const VAULT = import.meta.env.VITE_VAULT_ADDRESS as `0x${string}` | undefined;
+/** Public testnet address whose AutoRoll history is safe to show without a
+ * wallet. This is presentation state, never an authority or signing key. */
+export const DEMO_ADDRESS = import.meta.env.VITE_DEMO_ADDRESS as `0x${string}` | undefined;
 export const COLLATERAL = "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E" as const; // TestUSDC, 6dp
 export const COLLATERAL_DECIMALS = 6;
 
@@ -28,7 +35,15 @@ export const COLLATERAL_DECIMALS = 6;
  *  off-chain roller instead, which is how the demo runs before deployment. */
 export const onChainMode = Boolean(VAULT);
 
-export const publicClient = createPublicClient({ chain: shannon, transport: http() });
+/** Reads fail over between Somnia's two public Shannon endpoints. A five-minute
+ * demo should not disappear because one public RPC has a bad minute. */
+export const publicClient = createPublicClient({
+  chain: shannon,
+  transport: fallback(SHANNON_RPCS.map((url) => http(url, { timeout: 8_000 })), {
+    rank: false,
+    retryCount: 1,
+  }),
+});
 
 let connectedProvider: EIP1193Provider | null = null;
 export function setProvider(provider: EIP1193Provider) { connectedProvider = provider; }
@@ -52,7 +67,8 @@ export async function ensureShannon(provider: EIP1193Provider): Promise<void> {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexId }] });
   } catch (err: any) {
     // 4902 = chain unknown to the wallet. Anything else is the user declining.
-    if (err?.code !== 4902 && err?.data?.originalError?.code !== 4902) throw err;
+    const code = Number(err?.code ?? err?.data?.originalError?.code ?? err?.cause?.code);
+    if (code !== 4902) throw err;
     await provider.request({
       method: "wallet_addEthereumChain",
       params: [
@@ -65,5 +81,8 @@ export async function ensureShannon(provider: EIP1193Provider): Promise<void> {
         },
       ],
     });
+    // Most wallets switch automatically after adding, but EIP-3085 does not
+    // require it. Make the resulting network deterministic.
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexId }] });
   }
 }

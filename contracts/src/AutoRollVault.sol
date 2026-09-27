@@ -47,6 +47,7 @@ contract AutoRollVault is SomniaEventHandler {
     error NotSubscribed();
     error InsufficientReactivityBalance(uint256 have, uint256 need);
     error NoSuchPosition();
+    error ProtectedToken();
 
     // ---------------------------------------------------------------- events
 
@@ -687,6 +688,9 @@ contract AutoRollVault is SomniaEventHandler {
     }
 
     function sweep(address token, uint256 amount) external onlyOwner {
+        // User collateral and outcome inventory are liabilities, not accidental
+        // transfers. Administrative recovery must never be able to touch them.
+        require(token != address(collateral) && token != address(outcomeToken), ProtectedToken());
         IERC20(token).transfer(owner, amount);
     }
 

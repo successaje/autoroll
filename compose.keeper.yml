@@ -1,0 +1,21 @@
+services:
+  keeper:
+    build:
+      context: .
+      dockerfile: Dockerfile.keeper
+    env_file:
+      - .env.keeper
+    ports:
+      # Bind health locally only. Inspect through SSH; do not expose it publicly.
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 90s
