@@ -4,6 +4,7 @@ import { Feed } from "./Feed";
 import { CoinIcon } from "./CoinIcon";
 import { ExplorerLink, shortHash } from "./ExplorerLink";
 import { useRollTxs } from "../lib/useRollTxs";
+import { usePrices, formatUsd, type Price } from "../lib/usePrices";
 import { EquityCurve } from "./EquityCurve";
 import { useNavigation, type Route } from "../lib/navigation";
 import { money, pnl } from "../lib/format";
@@ -19,6 +20,7 @@ export function Brand({ onClick }: { onClick?: () => void }) {
 }
 
 export function MarketingSite({ markets }: { markets: MarketState }) {
+  const prices = usePrices();
   const { go } = useNavigation();
   const launch = () => go({ name: "markets" });
   const demoHref = DEMO_ADDRESS
@@ -45,7 +47,7 @@ export function MarketingSite({ markets }: { markets: MarketState }) {
 
       <section className="section markets-preview">
         <div className="section-intro"><p className="overline">Supported markets</p><h2>Choose the view.<br />We handle the windows.</h2><p>AutoRoll currently supports DreamDEX’s BTC and ETH directional markets on Somnia Shannon.</p></div>
-        <div className="market-grid">{(["BTC", "ETH"] as const).map((asset) => <MarketTile key={asset} asset={asset} onOpen={(side) => go({ name: "market", asset, side })} connected={markets.connected} />)}</div>
+        <div className="market-grid">{(["BTC", "ETH"] as const).map((asset) => <MarketTile key={asset} asset={asset} price={prices[asset]} onOpen={(side) => go({ name: "market", asset, side })} connected={markets.connected} />)}</div>
       </section>
 
       <section className="section how-section" id="how">
@@ -98,25 +100,36 @@ export function AppShell({ route, accountLabel, children, onConnect }: { route: 
 
 export function MarketsScreen({ markets }: { markets: MarketState }) {
   const { go } = useNavigation();
-  return <><PageTitle eyebrow="DreamDEX markets" title="Markets" detail="Choose an asset and direction. AutoRoll carries the position across eligible 60-second successors." /><div className="market-grid app-markets">{(["BTC", "ETH"] as const).map((asset) => <MarketTile key={asset} asset={asset} connected={markets.connected} onOpen={(side) => go({ name: "market", asset, side })} />)}</div><InfoStrip /></>;
+  const prices = usePrices();
+  return <><PageTitle eyebrow="DreamDEX markets" title="Markets" detail="Choose an asset and direction. AutoRoll carries the position across eligible 60-second successors." /><div className="market-grid app-markets">{(["BTC", "ETH"] as const).map((asset) => <MarketTile key={asset} asset={asset} price={prices[asset]} connected={markets.connected} onOpen={(side) => go({ name: "market", asset, side })} />)}</div><InfoStrip /></>;
 }
 
-function MarketTile({ asset, connected, onOpen }: { asset: "BTC" | "ETH"; connected: boolean; onOpen: (side?: boolean) => void }) {
+function MarketTile({ asset, connected, onOpen, price }: { asset: "BTC" | "ETH"; connected: boolean; onOpen: (side?: boolean) => void; price?: Price }) {
   const name = asset === "BTC" ? "Bitcoin" : "Ethereum";
   // The whole tile is the target — a card that looks clickable and only responds
   // on two small buttons is the most common way to lose someone on a first visit.
   // Up and Down carry their side through so the market opens with it already
   // chosen, rather than asking the same question twice.
-  return <article className="market-tile" role="link" tabIndex={0} onClick={() => onOpen()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}><div className="asset-head"><CoinIcon asset={asset} /><div><h3>{name}</h3><p>{asset}/USD</p></div><span className={`availability ${connected ? "online" : ""}`}>{connected ? "Available" : "Checking"}</span></div><div className="market-facts"><span><small>Window cadence</small><b>60 seconds</b></span><span><small>Execution</small><b>Price protected</b></span></div><div className="direction-preview"><button onClick={(e) => { e.stopPropagation(); onOpen(true); }}>↑ Go Up</button><button onClick={(e) => { e.stopPropagation(); onOpen(false); }}>↓ Go Down</button></div><div className="roll-available">↻ AutoRoll available <span>View market →</span></div></article>;
+  return <article className="market-tile" role="link" tabIndex={0} onClick={() => onOpen()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}><div className="asset-head"><CoinIcon asset={asset} /><div><h3>{name}</h3><p>{asset}/USD</p></div>{price && <SpotPrice price={price} />}<span className={`availability ${connected ? "online" : ""}`}>{connected ? "Available" : "Checking"}</span></div><div className="market-facts"><span><small>Window cadence</small><b>60 seconds</b></span><span><small>Execution</small><b>Price protected</b></span></div><div className="direction-preview"><button onClick={(e) => { e.stopPropagation(); onOpen(true); }}>↑ Go Up</button><button onClick={(e) => { e.stopPropagation(); onOpen(false); }}>↓ Go Down</button></div><div className="roll-available">↻ AutoRoll available <span>View market →</span></div></article>;
 }
 
 export function MarketScreen({ asset, initialSide, balance, decimals, connected, busy, step, onConnect, onOpen }: { asset: "BTC" | "ETH"; initialSide?: boolean; balance: bigint; decimals: number; connected: boolean; busy: boolean; step: string | null; onConnect: () => void; onOpen: (request: { asset: string; up: boolean; stake: number; streak: boolean }) => void }) {
   const { back } = useNavigation();
+  const prices = usePrices();
+  const spot = prices[asset];
   const [side, setSide] = useState<boolean | null>(initialSide ?? null);
   const [amount, setAmount] = useState("25");
   const [stage, setStage] = useState<"configure" | "review">("configure");
   const valid = Number(amount) > 0 && side !== null;
-  return <><button className="back-button" onClick={back}>← Markets</button><div className="market-workspace"><section className="market-detail"><div className="market-identity"><CoinIcon asset={asset} /><div><p>{asset}/USD</p><h1>{asset === "BTC" ? "Bitcoin" : "Ethereum"}</h1></div></div><div className="persistent-explainer"><p className="overline">Persistent position</p><h2>The window expires.<br />Your position continues.</h2><div className="successor-track"><span>Window N ✓</span><i>→</i><span className="current">Current ●</span><i>→</i><span>Successor</span><i>→</i><b>∞</b></div><p>AutoRoll redeems settled exposure and uses immediate-or-cancel execution to enter an eligible successor. An unfilled amount stays in the vault.</p></div><InfoStrip /></section><section className="order-panel"><div><p className="overline">Open {asset} position</p><h2>{stage === "review" ? "Review automatic behavior" : "Choose your direction"}</h2></div>{stage === "configure" ? <><div className="direction-selector"><button className="up" aria-pressed={side === true} onClick={() => setSide(true)}>↑<b>Go Up</b><small>{asset} settles higher</small></button><button className="down" aria-pressed={side === false} onClick={() => setSide(false)}>↓<b>Go Down</b><small>{asset} settles lower</small></button></div><label className="amount-field"><span>You deposit</span><div><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /><b>tUSDC</b></div><small>Available: {money(balance.toString(), decimals)} tUSDC</small></label><div className="amount-presets">{[10,25,100].map((n) => <button key={n} onClick={() => setAmount(String(n))}>{n}</button>)}</div><PolicyCard /><button className="button primary full" disabled={!valid} onClick={() => setStage("review")}>{side === null ? "Choose Up or Down" : `Review ${asset} ${side ? "↑" : "↓"}`}</button></> : <><div className="review-position"><span>{asset} {side ? "↑" : "↓"}</span><strong>{amount} tUSDC</strong></div><ul className="review-list"><li>Enter an eligible current window</li><li>Redeem automatically when it settles</li><li>Enter the next eligible successor</li><li>Continue until you or a stop rule ends it</li></ul><PolicyCard /><p className="signature-note"><b>One approval to open.</b> No signature is required for subsequent rolls.</p><button className="button primary full" disabled={busy} onClick={() => connected ? onOpen({ asset, up: side!, stake: Number(amount), streak: false }) : onConnect()}>{busy ? step ?? "Confirming on-chain…" : connected ? "Confirm & open" : "Connect wallet to continue"}</button><button className="text-button" onClick={() => setStage("configure")} disabled={busy}>Edit position</button></>}</section></div>{busy && <TransactionProgress step={step} />}</>;
+  return <><button className="back-button" onClick={back}>← Markets</button><div className="market-workspace"><section className="market-detail"><div className="market-identity"><CoinIcon asset={asset} /><div><p>{asset}/USD</p><h1>{asset === "BTC" ? "Bitcoin" : "Ethereum"}</h1></div>{spot && <SpotPrice price={spot} large />}</div><div className="persistent-explainer"><p className="overline">Persistent position</p><h2>The window expires.<br />Your position continues.</h2><div className="successor-track"><span>Window N ✓</span><i>→</i><span className="current">Current ●</span><i>→</i><span>Successor</span><i>→</i><b>∞</b></div><p>AutoRoll redeems settled exposure and uses immediate-or-cancel execution to enter an eligible successor. An unfilled amount stays in the vault.</p></div><InfoStrip /></section><section className="order-panel"><div><p className="overline">Open {asset} position</p><h2>{stage === "review" ? "Review automatic behavior" : "Choose your direction"}</h2></div>{stage === "configure" ? <><div className="direction-selector"><button className="up" aria-pressed={side === true} onClick={() => setSide(true)}>↑<b>Go Up</b><small>{asset} settles higher</small></button><button className="down" aria-pressed={side === false} onClick={() => setSide(false)}>↓<b>Go Down</b><small>{asset} settles lower</small></button></div><label className="amount-field"><span>You deposit</span><div><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /><b>tUSDC</b></div><small>Available: {money(balance.toString(), decimals)} tUSDC</small></label><div className="amount-presets">{[10,25,100].map((n) => <button key={n} onClick={() => setAmount(String(n))}>{n}</button>)}</div><PolicyCard /><button className="button primary full" disabled={!valid} onClick={() => setStage("review")}>{side === null ? "Choose Up or Down" : `Review ${asset} ${side ? "↑" : "↓"}`}</button></> : <><div className="review-position"><span>{asset} {side ? "↑" : "↓"}</span><strong>{amount} tUSDC</strong></div><ul className="review-list"><li>Enter an eligible current window</li><li>Redeem automatically when it settles</li><li>Enter the next eligible successor</li><li>Continue until you or a stop rule ends it</li></ul><PolicyCard /><p className="signature-note"><b>One approval to open.</b> No signature is required for subsequent rolls.</p><button className="button primary full" disabled={busy} onClick={() => connected ? onOpen({ asset, up: side!, stake: Number(amount), streak: false }) : onConnect()}>{busy ? step ?? "Confirming on-chain…" : connected ? "Confirm & open" : "Connect wallet to continue"}</button><button className="text-button" onClick={() => setStage("configure")} disabled={busy}>Edit position</button></>}</section></div>{busy && <TransactionProgress step={step} />}</>;
+}
+
+/*  A spot reference, and labelled as one. Windows settle against Somnia's
+    oracle comparing the open to the close, not against this number, so calling
+    it "the price" would claim a precision over settlement it does not have. */
+function SpotPrice({ price, large = false }: { price: Price; large?: boolean }) {
+  const up = price.change24h >= 0;
+  return <div className={`spot-price ${large ? "large" : ""}`} title="Spot reference, not the settlement price"><b>{formatUsd(price.usd)}</b><small className={up ? "positive" : "negative"}>{up ? "+" : ""}{price.change24h.toFixed(2)}% 24h</small></div>;
 }
 
 function PolicyCard() { return <div className="policy-card"><div><span>Per window</span><b>20% of managed balance</b></div><div><span>Maximum entry</span><b>0.65</b></div><div><span>Automatic stop</span><b>4 consecutive losses</b></div></div>; }

@@ -436,3 +436,13 @@ footer { max-width: 1180px; margin: 0 auto; padding: 42px 24px; display: flex; j
 .ev-tx span { font-size: 8px; opacity: .75; }
 
 @media (max-width: 720px) { .ev-tx { padding-left: 8px; font-size: 9px; } }
+
+/* --------------------------------------------------------- spot reference */
+
+.spot-price { margin-left: auto; text-align: right; line-height: 1.25; }
+.spot-price b { display: block; font-size: 14px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.spot-price small { font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.spot-price.large b { font-size: 21px; }
+.spot-price.large small { font-size: 11px; }
+
+@media (max-width: 720px) { .spot-price.large b { font-size: 18px; } }
