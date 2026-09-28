@@ -1,21 +1,44 @@
 import { clock, toNum } from "../lib/format";
+import { explorerTx, shortHash } from "./ExplorerLink";
 import type { RollerEvent } from "../lib/types";
 
 /** Plain-language event log. Win/loss carries a word as well as a colour —
  *  status hues never do the work alone. */
-export function Feed({ feed, decimals, numbered = false }: { feed: RollerEvent[]; decimals: number; numbered?: boolean }) {
+export function Feed({
+  feed,
+  decimals,
+  numbered = false,
+  /** Transaction hash per roll, oldest first — `txs[n - 1]` is roll `n`. Rows
+   *  without one still render; they just do not become links. */
+  txs = [],
+}: {
+  feed: RollerEvent[];
+  decimals: number;
+  numbered?: boolean;
+  txs?: string[];
+}) {
   if (feed.length === 0) {
     return <p className="empty">No completed rolls yet. Entries and settlements will appear here.</p>;
   }
 
   return (
     <div className="feed">
-      {[...feed].reverse().slice(0, 14).map((e, i) => (
-        <div className="ev" key={`${e.at}-${i}`}>
-          <time>{numbered ? `Roll ${feed.length - i}` : e.at > 0 ? clock(e.at) : "on-chain"}</time>
-          {render(e, decimals)}
-        </div>
-      ))}
+      {[...feed].reverse().slice(0, 14).map((e, i) => {
+        const rollNumber = feed.length - i;
+        const hash = numbered ? txs[rollNumber - 1] : undefined;
+        return (
+          <div className="ev" key={`${e.at}-${i}`}>
+            <time>{numbered ? `Roll ${rollNumber}` : e.at > 0 ? clock(e.at) : "on-chain"}</time>
+            {render(e, decimals)}
+            {hash && (
+              <a className="ev-tx" href={explorerTx(hash)} target="_blank" rel="noreferrer" title={hash}>
+                {shortHash(hash, 8, 6)}
+                <span aria-hidden="true">↗</span>
+              </a>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
