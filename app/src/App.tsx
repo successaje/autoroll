@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavigationProvider, useNavigation } from "./lib/navigation";
 import { useWallet } from "./lib/useWallet";
 import { useVault } from "./lib/useVault";
+import { DEMO_ADDRESS } from "./lib/chain";
 import { RollToasts } from "./components/RollToasts";
 import { useWindows } from "./lib/useWindows";
 import { closePosition, faucet, openPosition } from "./lib/vault";
@@ -40,7 +41,14 @@ function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
   const wallet = useWallet();
   const watch = useMemo(watchParam, []);
   const ready = Boolean(wallet.account) && wallet.onRightChain;
-  const target = ready ? wallet.account : watch;
+  /*  With no wallet and no ?watch, fall back to the showcase account rather than
+      an empty app. Somebody opening this link for the first time — on a phone,
+      in a Discord call, with nothing installed — should see real positions
+      rolling, not an empty-state telling them to go and get a wallet first.
+      Everything is read-only until a wallet connects. */
+  const demo = !ready && !watch ? DEMO_ADDRESS ?? null : null;
+  const target = ready ? wallet.account : watch ?? demo;
+  const readOnly = !ready && Boolean(target);
   const { positions, balance, decimals, feed, error, loading, stale, refresh } = useVault(target);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
@@ -83,6 +91,7 @@ function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
 
   return <AppShell route={route} accountLabel={label} onConnect={() => void connect()}>
     {(wallet.error || error || actionError || stale) && <div className="app-alert" role="status"><div><b>{actionError ? "Action needs attention" : stale ? "Showing the last verified state" : "Connection needs attention"}</b><p>{actionError ?? wallet.error ?? error ?? "AutoRoll will keep retrying the Shannon RPC."}</p></div><button onClick={() => void refresh()}>Retry</button></div>}
+    {readOnly && <div className="readonly-banner"><span>👁</span><div><b>Read-only showcase</b><p>You are viewing a live account on Somnia Shannon. Connect a wallet to open your own position.</p></div><button onClick={() => void connect()}>Connect</button></div>}
     {route.name === "markets" && <MarketsScreen markets={markets} />}
     {route.name === "market" && <MarketScreen asset={route.asset} initialSide={route.side} balance={balance} decimals={decimals} connected={ready} busy={busy} step={step} onConnect={() => void connect()} onOpen={(r) => void open(r)} />}
     {route.name === "portfolio" && <PortfolioScreen positions={positions} decimals={decimals} loading={loading && !positions.length} success={opened} onDismissSuccess={() => setOpened(null)} />}

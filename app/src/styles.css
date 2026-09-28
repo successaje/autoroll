@@ -399,3 +399,31 @@ footer { max-width: 1180px; margin: 0 auto; padding: 42px 24px; display: flex; j
   .roll-toasts { right: 12px; left: 12px; top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); }
   .roll-toast { width: auto; }
 }
+
+/* ---------------------------------------------------------- explorer links */
+
+.explorer-link { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); font-family: var(--mono, ui-monospace, monospace); font-size: 11px; text-decoration: none; border-bottom: 1px solid transparent; }
+.explorer-link:hover { color: var(--accent); border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.explorer-link span { font-size: 9px; opacity: .7; }
+
+/*  The verification line under a panel heading. Quiet, but always reachable —
+    the point of the product is that none of this needs to be taken on trust. */
+.verify-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 10px; }
+
+/* -------------------------------------------------------- read-only notice */
+
+/*  Shown when the app is displaying the showcase account rather than the
+    viewer's own. Unmissable but not alarming — nothing is wrong, the data is
+    simply somebody else's. */
+.readonly-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.readonly-banner > span { font-size: 15px; line-height: 1; }
+.readonly-banner div { flex: 1; min-width: 0; }
+.readonly-banner b { display: block; font-size: 12px; }
+.readonly-banner p { margin: 2px 0 0; color: var(--text-secondary); font-size: 11px; }
+.readonly-banner button { flex: none; padding: 7px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 11px; font-weight: 600; cursor: pointer; }
+.readonly-banner button:hover { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 720px) {
+  .readonly-banner { align-items: flex-start; flex-wrap: wrap; }
+  .readonly-banner button { width: 100%; }
+}
