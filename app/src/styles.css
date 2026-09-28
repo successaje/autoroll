@@ -118,8 +118,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .market-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .market-tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
 .asset-head { display: flex; align-items: center; gap: 12px; }
-.asset-icon { width: 42px; height: 42px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--surface-soft); color: var(--text); font-size: 20px; font-weight: 650; flex: none; }
-.asset-icon.eth { color: #6377a8; }
+.asset-icon { border-radius: 50%; display: inline-grid; place-items: center; flex: none; overflow: hidden; line-height: 0; }
+.asset-icon svg { display: block; width: 100%; height: 100%; }
 .asset-head h3 { margin: 0; font-size: 16px; }
 .asset-head p { margin: 1px 0 0; color: var(--text-muted); font-size: 11px; }
 .availability { margin-left: auto; color: var(--text-muted); font-size: 10px; font-weight: 750; text-transform: uppercase; }
@@ -370,3 +370,32 @@ footer { max-width: 1180px; margin: 0 auto; padding: 42px 24px; display: flex; j
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; } }
+
+/* ------------------------------------------------------------- roll toasts */
+
+/*  Top-right on desktop, clear of the primary CTA — the order panel and the
+    stop button both sit bottom-right, and a toast that covers the button the
+    user is reaching for is worse than no toast. On mobile it sits above the tab
+    bar instead, where nothing competes with it.
+
+    Deliberately quiet: the roll already happened and needs no decision. This is
+    evidence, not an alert. */
+.roll-toasts { position: fixed; right: 18px; top: 74px; z-index: 60; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.roll-toast { pointer-events: auto; width: 296px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 11px; padding: 11px 13px; text-align: left; border: 1px solid var(--border); border-left: 3px solid var(--text-muted); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); cursor: pointer; animation: toast-in .28s cubic-bezier(.22,1,.36,1); }
+.roll-toast:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.roll-toast.won { border-left-color: var(--positive); }
+.roll-toast.lost { border-left-color: var(--negative); }
+.roll-toast-body { min-width: 0; display: grid; gap: 2px; }
+.roll-toast-body b { font-size: 12px; letter-spacing: -.01em; }
+.roll-toast-body small { color: var(--text-muted); font-size: 10px; }
+.roll-toast-equity { text-align: right; font-size: 13px; font-weight: 650; letter-spacing: -.02em; white-space: nowrap; }
+.roll-toast-equity small { display: block; color: var(--text-muted); font-size: 9px; font-weight: 500; }
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) { .roll-toast { animation: none; } }
+
+@media (max-width: 720px) {
+  .roll-toasts { right: 12px; left: 12px; top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .roll-toast { width: auto; }
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavigationProvider, useNavigation } from "./lib/navigation";
 import { useWallet } from "./lib/useWallet";
 import { useVault } from "./lib/useVault";
+import { RollToasts } from "./components/RollToasts";
 import { useWindows } from "./lib/useWindows";
 import { closePosition, faucet, openPosition } from "./lib/vault";
 import { DEFAULT_POLICY } from "./lib/policy";
@@ -83,12 +84,13 @@ function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
   return <AppShell route={route} accountLabel={label} onConnect={() => void connect()}>
     {(wallet.error || error || actionError || stale) && <div className="app-alert" role="status"><div><b>{actionError ? "Action needs attention" : stale ? "Showing the last verified state" : "Connection needs attention"}</b><p>{actionError ?? wallet.error ?? error ?? "AutoRoll will keep retrying the Shannon RPC."}</p></div><button onClick={() => void refresh()}>Retry</button></div>}
     {route.name === "markets" && <MarketsScreen markets={markets} />}
-    {route.name === "market" && <MarketScreen asset={route.asset} balance={balance} decimals={decimals} connected={ready} busy={busy} step={step} onConnect={() => void connect()} onOpen={(r) => void open(r)} />}
+    {route.name === "market" && <MarketScreen asset={route.asset} initialSide={route.side} balance={balance} decimals={decimals} connected={ready} busy={busy} step={step} onConnect={() => void connect()} onOpen={(r) => void open(r)} />}
     {route.name === "portfolio" && <PortfolioScreen positions={positions} decimals={decimals} loading={loading && !positions.length} success={opened} onDismissSuccess={() => setOpened(null)} />}
     {route.name === "position" && (currentPosition ? <PositionScreen position={currentPosition} decimals={decimals} feed={feed} onStop={ready ? () => void stop(currentPosition.id) : undefined} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
     {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}
     {route.name === "status" && <StatusScreen connected={markets.connected} />}
     {ready && balance === 0n && route.name !== "status" && <button className="test-funds" disabled={busy} onClick={async () => { if (!wallet.account) return; setBusy(true); try { await faucet(wallet.account); await refresh(); } finally { setBusy(false); } }}>Get test tUSDC</button>}
+    <RollToasts positions={positions} decimals={decimals} />
   </AppShell>;
 }
 
@@ -108,7 +110,7 @@ function OffChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
   const position = route.name === "position" ? positions.find((p) => p.id === route.id) : null;
   return <AppShell route={route} accountLabel="Dry run" onConnect={() => {}}>
     {route.name === "markets" && <MarketsScreen markets={markets} />}
-    {route.name === "market" && <MarketScreen asset={route.asset} balance={500_000_000n} decimals={6} connected busy={busy} step={null} onConnect={() => {}} onOpen={async (request) => { setBusy(true); try { await post("/api/open", request); go({ name: "portfolio" }); } finally { setBusy(false); } }} />}
+    {route.name === "market" && <MarketScreen asset={route.asset} initialSide={route.side} balance={500_000_000n} decimals={6} connected busy={busy} step={null} onConnect={() => {}} onOpen={async (request) => { setBusy(true); try { await post("/api/open", request); go({ name: "portfolio" }); } finally { setBusy(false); } }} />}
     {route.name === "portfolio" && <PortfolioScreen positions={positions} decimals={decimals} loading={!snapshot} />}
     {route.name === "position" && (position ? <PositionScreen position={position} decimals={decimals} feed={feed} onStop={() => void post("/api/close", { id: position.id })} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
     {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}

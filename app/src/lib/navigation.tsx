@@ -3,7 +3,10 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 export type Route =
   | { name: "home" }
   | { name: "markets" }
-  | { name: "market"; asset: "BTC" | "ETH" }
+  /** `side` preselects Up (true) or Down (false) when the user picked a
+   *  direction on the market tile. Not encoded in the URL — it is a handoff
+   *  between two screens, not a shareable location. */
+  | { name: "market"; asset: "BTC" | "ETH"; side?: boolean }
   | { name: "portfolio" }
   | { name: "position"; id: number }
   | { name: "activity" }
