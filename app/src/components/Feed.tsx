@@ -3,7 +3,7 @@ import type { RollerEvent } from "../lib/types";
 
 /** Plain-language event log. Win/loss carries a word as well as a colour —
  *  status hues never do the work alone. */
-export function Feed({ feed, decimals }: { feed: RollerEvent[]; decimals: number }) {
+export function Feed({ feed, decimals, numbered = false }: { feed: RollerEvent[]; decimals: number; numbered?: boolean }) {
   if (feed.length === 0) {
     return <p className="empty">No completed rolls yet. Entries and settlements will appear here.</p>;
   }
@@ -12,7 +12,7 @@ export function Feed({ feed, decimals }: { feed: RollerEvent[]; decimals: number
     <div className="feed">
       {[...feed].reverse().slice(0, 14).map((e, i) => (
         <div className="ev" key={`${e.at}-${i}`}>
-          <time>{e.at > 0 ? clock(e.at) : "on-chain"}</time>
+          <time>{numbered ? `Roll ${feed.length - i}` : e.at > 0 ? clock(e.at) : "on-chain"}</time>
           {render(e, decimals)}
         </div>
       ))}
