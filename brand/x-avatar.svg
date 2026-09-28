@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <rect width="400" height="400" fill="#111820"/>
+  <path d="M 215.72 68.94 A 132 132 0 0 1 264.32 84.73" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="1.000"/>
+  <path d="M 289.75 103.21 A 132 132 0 0 1 319.79 144.55" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.936"/>
+  <path d="M 329.50 174.45 A 132 132 0 0 1 329.50 225.55" fill="none" stroke="#bd4d42" stroke-width="32" stroke-linecap="round" opacity="0.871"/>
+  <path d="M 319.79 255.45 A 132 132 0 0 1 289.75 296.79" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.807"/>
+  <path d="M 264.32 315.27 A 132 132 0 0 1 215.72 331.06" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.742"/>
+  <path d="M 184.28 331.06 A 132 132 0 0 1 135.68 315.27" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.678"/>
+  <path d="M 110.25 296.79 A 132 132 0 0 1 80.21 255.45" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.613"/>
+  <path d="M 70.50 225.55 A 132 132 0 0 1 70.50 174.45" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.549"/>
+  <path d="M 80.21 144.55 A 132 132 0 0 1 110.25 103.21" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.484"/>
+  <path d="M 135.68 84.73 A 132 132 0 0 1 184.28 68.94" fill="none" stroke="#1f9c92" stroke-width="32" stroke-linecap="round" opacity="0.420"/>
+</svg>
