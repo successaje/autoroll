@@ -10,7 +10,10 @@ export type Route =
   | { name: "portfolio" }
   | { name: "position"; id: number }
   | { name: "activity" }
-  | { name: "status" };
+  | { name: "status" }
+  /** An /app path that matches nothing. Shown as a dead end rather than
+   *  silently redirecting to marketing, which made a typo look like a logout. */
+  | { name: "notfound"; path: string };
 
 function parseRoute(): Route {
   const path = location.pathname.replace(/\/+$/, "") || "/";
@@ -22,6 +25,7 @@ function parseRoute(): Route {
   if (path === "/app/activity") return { name: "activity" };
   if (path === "/status") return { name: "status" };
   if (path === "/app" || path === "/app/markets") return { name: "markets" };
+  if (path.startsWith("/app/")) return { name: "notfound", path };
   return { name: "home" };
 }
 
@@ -34,6 +38,7 @@ function routePath(route: Route): string {
     case "position": return `/app/position/${route.id}`;
     case "activity": return "/app/activity";
     case "status": return "/status";
+    case "notfound": return route.path;
   }
 }
 

@@ -116,6 +116,7 @@ function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
     {route.name === "position" && (currentPosition ? <PositionScreen position={currentPosition} decimals={decimals} feed={feed} onStop={ready ? () => void stop(currentPosition.id) : undefined} onResume={() => void resume(currentPosition.id)} resuming={resuming} resumeError={resumeError} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
     {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}
     {route.name === "status" && <StatusScreen connected={markets.connected} />}
+    {route.name === "notfound" && <UnknownRoute path={route.path} onHome={() => go({ name: "markets" })} />}
     {ready && balance === 0n && route.name !== "status" && <button className="test-funds" disabled={busy} onClick={async () => { if (!wallet.account) return; setBusy(true); try { await faucet(wallet.account); await refresh(); } finally { setBusy(false); } }}>Get test tUSDC</button>}
     <RollToasts positions={positions} decimals={decimals} />
   </AppShell>;
@@ -142,7 +143,14 @@ function OffChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
     {route.name === "position" && (position ? <PositionScreen position={position} decimals={decimals} feed={feed} onStop={() => void post("/api/close", { id: position.id })} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
     {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}
     {route.name === "status" && <StatusScreen connected={markets.connected} />}
+    {route.name === "notfound" && <UnknownRoute path={route.path} onHome={() => go({ name: "markets" })} />}
   </AppShell>;
+}
+
+/*  A real dead end for an /app path that matches nothing. Falling through to
+    the marketing page made a mistyped link look like having been signed out. */
+function UnknownRoute({ path, onHome }: { path: string; onHome: () => void }) {
+  return <div className="empty-state"><span>?</span><h2>Page not found</h2><p><code>{path}</code> is not a page in AutoRoll.</p><button className="button primary" onClick={onHome}>Go to markets</button></div>;
 }
 
 function NotFound({ onMarkets }: { onMarkets: () => void }) { return <div className="empty-state"><span>↻</span><h2>Position not found</h2><p>This position is unavailable for the connected wallet.</p><button className="button primary" onClick={onMarkets}>Return to portfolio</button></div>; }
