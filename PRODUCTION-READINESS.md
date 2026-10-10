@@ -94,8 +94,19 @@ asserted the cache-only behaviour that let stale shells survive redeploys.
    button reduce the blast radius; they do not remove the dependency. Nothing
    economically motivates a third party to poke a stalled vault, so
    "permissionless" currently means "the team, or a user who notices".
-3. **No alerting.** `ops/keeper-health.sh` must be run by a human. Nothing pages
-   anyone when rolling stops — which is why nobody noticed for eleven days.
+3. ~~**No alerting.**~~ **Resolved 10 Oct.** `ops/install-alert.sh` installs a
+   launchd agent that checks every five minutes and notifies on state change —
+   one alert per outage, not one every five minutes. It is a **separate agent
+   from the keeper** on purpose: an alerter inside the process it watches says
+   nothing when that process is what failed, which is exactly how this hid. The
+   authoritative signal is the chain, not the keeper's opinion of itself, and
+   it stays quiet when no position is open, since a vault with nothing to do
+   genuinely has nothing to report. Optional phone push via an ntfy topic in
+   `~/.autoroll-alert.conf`.
+
+   Remaining caveat: it only runs while the Mac is awake. An outage that starts
+   when the laptop sleeps is reported when it wakes, not while it is down. A
+   phone-reachable check needs a host that is always on.
 4. **Reactivity is not subscribed.** It needs 32 STT in the vault. Until then
    the keeper is the only driver, and the status page says so.
 5. ~~**The installed keeper is a stale copy.**~~ **Resolved 10 Oct.** The
