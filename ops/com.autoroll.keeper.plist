@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the AutoRoll keeper.
+
+  The keeper's own loop is well guarded - every tick is wrapped, and it tracks
+  its last success and last error. What killed it in production was nothing to
+  do with the code: the laptop slept and the process went with it, and the
+  vault sat frozen for eleven days with a position stranded in a settled
+  window.
+
+  KeepAlive restarts it on crash and at login. RunAtLoad starts it without
+  anyone remembering to. The private key is never written here - the keeper
+  reads .env itself through node's --env-file.
+
+  Install with ops/install-keeper.sh rather than editing the paths by hand.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.autoroll.keeper</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NPX__</string>
+    <string>tsx</string>
+    <string>--env-file=.env</string>
+    <string>src/keeper.ts</string>
+    <string>--vault</string>
+    <string>__VAULT__</string>
+    <string>--live</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+    <!-- Health is served here; ops/keeper-health.sh reads it. -->
+    <key>PORT</key>
+    <string>8787</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Back off rather than hot-looping if it fails immediately on boot. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>__ROOT__/ops/keeper.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/ops/keeper.error.log</string>
+</dict>
+</plist>

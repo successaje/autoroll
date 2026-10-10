@@ -45,6 +45,8 @@ const vaultAbi = parseAbi([
   "function pokeFinalized(bytes32 marketId)",
   "function pendingCount(bytes32 asset) view returns (uint256)",
   "function inMarketCount(bytes32 marketId) view returns (uint256)",
+  "function nextPositionId() view returns (uint256)",
+  "function positions(uint256) view returns (address user, bytes32 asset, bool up, uint256 principal, uint256 bankroll, uint256 atRisk, uint256 quantity, uint32 rolls, uint32 losses, bool active, (uint32,uint32,uint64,uint32,uint64,bool) policy)",
 ]);
 
 export interface KeeperOpts {
@@ -73,8 +75,20 @@ export interface KeeperStatus {
   lastError: string | null;
 }
 
+/** keccak("PositionRolled(uint256,bytes32,uint256,uint32)") — topic2 names the
+ *  market a position entered, which is the only on-chain link from a position
+ *  back to its window. */
+/** The explorer's log index is not bounded by the RPC's ~1000-block window,
+ *  which is the only way to find a market a position entered days ago. */
+const EXPLORER_API = "https://shannon-explorer.somnia.network/api/v2";
+const TOPIC_POSITION_ROLLED =
+  "0x85577a2f7c799f990d3cd76faa231656fda00599178083bfda685f816b6afe0e";
+/** How often to check the vault's actual state rather than the event stream. */
+const RECONCILE_MS = 10 * 60_000;
+
 export class Keeper {
   private readonly publicClient;
+  private lastReconcile = 0;
   private readonly wallet;
   private cursor: bigint | null = null;
   private lastSuccessfulTick: Date | null = null;
@@ -112,6 +126,10 @@ export class Keeper {
     for (;;) {
       try {
         await this.tick();
+        if (Date.now() - this.lastReconcile > RECONCILE_MS) {
+          this.lastReconcile = Date.now();
+          await this.reconcile();
+        }
         this.lastSuccessfulTick = new Date();
         this.lastError = null;
       } catch (err) {
@@ -134,6 +152,87 @@ export class Keeper {
       lastTransaction: this.lastTransaction,
       lastError: this.lastError,
     };
+  }
+
+  /**
+   *  Settle anything the event stream missed.
+   *
+   *  The keeper is otherwise purely event-driven with a bounded startup
+   *  lookback, which has one fatal shape: if it is down when a market it holds
+   *  finalizes, it never witnesses that event, and no later scan reaches back
+   *  far enough to find it. A position is then stranded in a settled window
+   *  forever while the keeper sits there looking perfectly healthy.
+   *
+   *  That is not hypothetical — it is how position #11 sat exposed for eleven
+   *  days with the keeper running and watching the whole time.
+   *
+   *  So this asks the vault what it is actually in, rather than trusting that
+   *  every relevant event was seen. Cheap: one read, plus one lookup per
+   *  exposed position, every ten minutes.
+   */
+  private async reconcile(): Promise<void> {
+    const next = (await this.publicClient.readContract({
+      address: this.opts.vault,
+      abi: vaultAbi,
+      functionName: "nextPositionId",
+    })) as bigint;
+
+    for (let id = 1n; id < next; id++) {
+      const p = (await this.publicClient.readContract({
+        address: this.opts.vault,
+        abi: vaultAbi,
+        functionName: "positions",
+        args: [id],
+      })) as readonly unknown[];
+
+      const atRisk = p[5] as bigint;
+      const active = p[9] as boolean;
+      if (!active || atRisk === 0n) continue; // queued positions are the event loop's job
+
+      const marketId = await this.marketOf(id);
+      if (!marketId) continue;
+
+      const stillIn = (await this.publicClient.readContract({
+        address: this.opts.vault,
+        abi: vaultAbi,
+        functionName: "inMarketCount",
+        args: [marketId],
+      })) as bigint;
+      if (stillIn === 0n) continue;
+
+      log(`reconcile: position #${id} stranded in ${short(marketId)} — settling`);
+      await this.send("pokeFinalized", [marketId], `harvest ${short(marketId)} (reconcile)`);
+    }
+  }
+
+  /**
+   *  The market a position is exposed to, from its own last PositionRolled log.
+   *
+   *  The vault maps market → positions and not the reverse, and `eth_getLogs`
+   *  here reaches back about 100 seconds, so this uses the explorer index. If
+   *  the explorer is unreachable the position is left alone and retried on the
+   *  next pass — never guessed at.
+   */
+  private async marketOf(positionId: bigint): Promise<Hex | null> {
+    const idTopic = `0x${positionId.toString(16).padStart(64, "0")}`;
+    let params = "";
+    for (let page = 0; page < 6; page++) {
+      const res = await fetch(`${EXPLORER_API}/addresses/${this.opts.vault}/logs${params}`);
+      if (!res.ok) return null;
+      const body = (await res.json()) as {
+        items?: Array<{ topics?: (string | null)[] }>;
+        next_page_params?: Record<string, string>;
+      };
+      for (const item of body.items ?? []) {
+        const [t0, t1, t2] = item.topics ?? [];
+        if (t0?.toLowerCase() === TOPIC_POSITION_ROLLED && t1?.toLowerCase() === idTopic && t2) {
+          return t2 as Hex;
+        }
+      }
+      if (!body.next_page_params) return null;
+      params = "?" + new URLSearchParams(body.next_page_params).toString();
+    }
+    return null;
   }
 
   private async recoverFinalizations(fromBlock: bigint, toBlock: bigint): Promise<void> {
