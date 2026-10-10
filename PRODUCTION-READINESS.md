@@ -70,7 +70,9 @@ asserted the cache-only behaviour that let stale shells survive redeploys.
 - 4 service-worker/PWA tests
 - TypeScript clean in both packages
 - `check-abi` — every selector the app declares matches the compiled contract
-- Reconcile pass, dry run against live state: finds position #11
+- Reconcile pass, **live**: settled position #11 out of market `#208ae`,
+  rolls 53 → 54, `inMarketCount` 0, vault rolling again within seconds
+- RPC failover: returns a block with a deliberately unresolvable primary
 - Resume path: market resolves to `#208ae`, `inMarketCount` 1,
   `simulateContract` succeeds
 - Deployed bundle contains the new states; status page renders
@@ -79,8 +81,8 @@ asserted the cache-only behaviour that let stale shells survive redeploys.
 ## Not verified
 
 - **The Resume button has never been clicked.** The call is simulate-verified,
-  not signature-verified.
-- **The reconcile pass has never sent a live transaction.** Dry run only.
+  not signature-verified. The same code path it would exercise has now run
+  live from the keeper, which is good evidence but not the same test.
 - No load or concurrency testing. No claim is made about scale.
 - No end-to-end browser test suite; UI verification is manual.
 - Contracts are unaudited.
@@ -96,9 +98,14 @@ asserted the cache-only behaviour that let stale shells survive redeploys.
    anyone when rolling stops — which is why nobody noticed for eleven days.
 4. **Reactivity is not subscribed.** It needs 32 STT in the vault. Until then
    the keeper is the only driver, and the status page says so.
-5. **The installed keeper is a stale copy.** It lives in
-   `~/Library/Application Support/AutoRoll Keeper`, not this repo, so it does
-   **not** have the reconcile fix. It must be updated or the outage recurs.
+5. ~~**The installed keeper is a stale copy.**~~ **Resolved 10 Oct.** The
+   runtime copy in `~/Library/Application Support/AutoRoll Keeper` was updated
+   with the reconcile pass and RPC failover and restarted. On its first pass it
+   settled position #11 out of market `#208ae` — eleven days after the event
+   that stranded it — and resumed entering windows. Verified on chain: `atRisk`
+   0, `inMarketCount` 0, rolls 53 → 54, vault active again. Note the runtime
+   copy is updated by hand; `scripts/install-keeper-mac.sh` also overwrites
+   `.env.keeper`, so a targeted `src/keeper.ts` copy is the safer path.
 6. **Explorer dependency.** Liveness, per-roll hashes and reconcile all read the
    explorer index. It degrades safely, but it is a single third party.
 
