@@ -446,3 +446,17 @@ footer { max-width: 1180px; margin: 0 auto; padding: 42px 24px; display: flex; j
 .spot-price.large small { font-size: 11px; }
 
 @media (max-width: 720px) { .spot-price.large b { font-size: 18px; } }
+
+/* ------------------------------------------------------------ stalled state */
+
+/*  The product's one promise is that positions keep rolling unattended. When
+    that stops being true the interface has to say so plainly — an "active"
+    badge over a frozen position is the most damaging thing this app could
+    display. Warning, not error: nothing is lost, it simply is not advancing. */
+.stalled-notice { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--negative) 30%, var(--border)); border-left: 3px solid var(--negative); border-radius: var(--radius); background: color-mix(in srgb, var(--negative) 5%, var(--surface)); }
+.stalled-notice > span { font-size: 15px; line-height: 1.2; }
+.stalled-notice b { display: block; font-size: 13px; }
+.stalled-notice p { margin: 3px 0 0; color: var(--text-secondary); font-size: 11.5px; line-height: 1.55; max-width: 72ch; }
+
+.status-overall.bad { border-color: color-mix(in srgb, var(--negative) 32%, var(--border)); background: color-mix(in srgb, var(--negative) 5%, var(--surface)); }
+.status-note.bad { color: var(--negative); }

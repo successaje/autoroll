@@ -5,6 +5,7 @@ import { CoinIcon } from "./CoinIcon";
 import { ExplorerLink, shortHash } from "./ExplorerLink";
 import { useRollTxs } from "../lib/useRollTxs";
 import { usePrices, formatUsd, type Price } from "../lib/usePrices";
+import { useLiveness, humanAgo, isDriven, type Liveness } from "../lib/useLiveness";
 import { EquityCurve } from "./EquityCurve";
 import { useNavigation, type Route } from "../lib/navigation";
 import { money, pnl } from "../lib/format";
@@ -132,17 +133,32 @@ function SpotPrice({ price, large = false }: { price: Price; large?: boolean }) 
   return <div className={`spot-price ${large ? "large" : ""}`} title="Spot reference, not the settlement price"><b>{formatUsd(price.usd)}</b><small className={up ? "positive" : "negative"}>{up ? "+" : ""}{price.change24h.toFixed(2)}% 24h</small></div>;
 }
 
+/*  Shown only when a position is open AND nothing has rolled for long enough
+    that no driver can be running. It says what is and is not at risk, because
+    "stopped" without that is just alarming. */
+function StalledNotice({ live, show }: { live: Liveness; show: boolean }) {
+  if (!show || live.state !== "stalled") return null;
+  return <section className="stalled-notice" role="status">
+    <span aria-hidden="true">⏸</span>
+    <div>
+      <b>Rolling has stopped</b>
+      <p>No window has settled for {humanAgo(live.lastRollAgoS)}, so open positions are holding their balance instead of entering new windows. Funds are in the vault and the owner can stop and withdraw at any time. The vault's entry points are permissionless, so anyone can resume it.</p>
+    </div>
+  </section>;
+}
+
 function PolicyCard() { return <div className="policy-card"><div><span>Per window</span><b>20% of managed balance</b></div><div><span>Maximum entry</span><b>0.65</b></div><div><span>Automatic stop</span><b>4 consecutive losses</b></div></div>; }
 function TransactionProgress({ step }: { step: string | null }) { const approval = step?.toLowerCase().includes("approv"); return <div className="transaction-state" role="status"><span className="rolling-mark">↻</span><div><p className="overline">Opening position</p><h3>{approval ? "Waiting for your wallet" : "Confirming on-chain"}</h3><p>{step ?? "Preparing the transaction…"}</p></div></div>; }
 
 export function PortfolioScreen({ positions, decimals, loading, success, onDismissSuccess }: { positions: Position[]; decimals: number; loading: boolean; success?: { asset: string; up: boolean; stake: number } | null; onDismissSuccess?: () => void }) {
+  const live = useLiveness();
   const { go } = useNavigation();
   const active = positions.filter((p) => p.active);
   const completed = positions.filter((p) => !p.active).reverse();
   const managed = active.reduce((sum, p) => sum + BigInt(p.bankroll) + BigInt(p.atRisk), 0n);
   const newest = [...active].reverse().find((p) => !success || p.asset === success.asset && p.up === success.up);
   const finalEquity = (p: Position) => p.history.at(-1)?.bankroll ?? p.principal;
-  return <><PageTitle eyebrow="Your AutoRoll" title="Portfolio" detail="Persistent positions and balances proven by the vault." />{success && <section className="success-card" role="status"><span className="success-check">✓</span><div><p className="overline">Position opened</p><h2>{success.asset} {success.up ? "↑" : "↓"} · {success.stake} tUSDC</h2><b>↻ AutoRoll active</b><p>Your position will continue through eligible successor windows until you stop it.</p></div><div>{newest && <button className="button primary" onClick={() => { onDismissSuccess?.(); go({ name: "position", id: newest.id }); }}>View position</button>}<button className="button secondary" onClick={onDismissSuccess}>Done</button></div></section>}{loading ? <PortfolioSkeleton /> : <>{active.length > 0 ? <><section className="portfolio-summary"><span>Managed balance <InfoTip /></span><strong>{money(managed.toString(), decimals)} <small>tUSDC</small></strong><p>Idle vault balance plus capital committed to current windows. This is not an instantly redeemable mark price.</p></section><div className="positions-list"><h2>Active positions</h2>{active.map((p) => <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>↻ AutoRoll active</small></span><span><b>{money((BigInt(p.bankroll) + BigInt(p.atRisk)).toString(), decimals)} tUSDC</b><small>{p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>)}</div></> : completed.length ? <CompletedProof position={completed[0]} decimals={decimals} onOpen={() => go({ name: "position", id: completed[0].id })} /> : <EmptyState title="No active positions" detail="Take a market view once. AutoRoll handles eligible windows after that." action="Explore markets" onClick={() => go({ name: "markets" })} />}{completed.length > 0 && <div className="positions-list completed-list"><h2>Completed runs <small>Verified from vault state</small></h2>{completed.map((p) => { const result = pnl(finalEquity(p), p.principal); return <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>Run complete · position #{p.id}</small></span><span><b>{money(finalEquity(p), decimals)} tUSDC</b><small className={result.pct >= 0 ? "positive" : "negative"}>{result.label} · {p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>; })}</div>}</>}</>;
+  return <><PageTitle eyebrow="Your AutoRoll" title="Portfolio" detail="Persistent positions and balances proven by the vault." /><StalledNotice live={live} show={active.length > 0} />{success && <section className="success-card" role="status"><span className="success-check">✓</span><div><p className="overline">Position opened</p><h2>{success.asset} {success.up ? "↑" : "↓"} · {success.stake} tUSDC</h2><b>↻ AutoRoll active</b><p>Your position will continue through eligible successor windows until you stop it.</p></div><div>{newest && <button className="button primary" onClick={() => { onDismissSuccess?.(); go({ name: "position", id: newest.id }); }}>View position</button>}<button className="button secondary" onClick={onDismissSuccess}>Done</button></div></section>}{loading ? <PortfolioSkeleton /> : <>{active.length > 0 ? <><section className="portfolio-summary"><span>Managed balance <InfoTip /></span><strong>{money(managed.toString(), decimals)} <small>tUSDC</small></strong><p>Idle vault balance plus capital committed to current windows. This is not an instantly redeemable mark price.</p></section><div className="positions-list"><h2>Active positions</h2>{active.map((p) => <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>{isDriven(live) ? "↻ AutoRoll active" : "⏸ Not rolling"}</small></span><span><b>{money((BigInt(p.bankroll) + BigInt(p.atRisk)).toString(), decimals)} tUSDC</b><small>{p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>)}</div></> : completed.length ? <CompletedProof position={completed[0]} decimals={decimals} onOpen={() => go({ name: "position", id: completed[0].id })} /> : <EmptyState title="No active positions" detail="Take a market view once. AutoRoll handles eligible windows after that." action="Explore markets" onClick={() => go({ name: "markets" })} />}{completed.length > 0 && <div className="positions-list completed-list"><h2>Completed runs <small>Verified from vault state</small></h2>{completed.map((p) => { const result = pnl(finalEquity(p), p.principal); return <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>Run complete · position #{p.id}</small></span><span><b>{money(finalEquity(p), decimals)} tUSDC</b><small className={result.pct >= 0 ? "positive" : "negative"}>{result.label} · {p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>; })}</div>}</>}</>;
 }
 
 function CompletedProof({ position, decimals, onOpen }: { position: Position; decimals: number; onOpen: () => void }) {
@@ -167,12 +183,13 @@ export function PositionScreen({ position, decimals, feed, onStop }: { position:
     const c = setTimeout(() => setPhase("active"), 2600);
     return () => { clearTimeout(a); clearTimeout(b); clearTimeout(c); };
   }, [position.rolls]);
+  const live = useLiveness();
   const positionFeed = feed.filter((e) => e.id === position.id);
   const rollTxs = useRollTxs(position.id, position.rolls);
   const stoppedByLosses = !position.active && position.policy.maxLosses > 0 && position.losses >= position.policy.maxLosses;
   const stoppedByRolls = !position.active && position.policy.maxRolls > 0 && position.rolls >= position.policy.maxRolls;
   const completionCopy = stoppedByLosses ? `The ${position.policy.maxLosses}-loss safety limit ended this run automatically.` : stoppedByRolls ? `The ${position.policy.maxRolls}-roll limit ended this run automatically.` : "This run is complete and its final balance has been returned or made available to its owner.";
-  return <><button className="back-button" onClick={back}>← Portfolio</button><div className="position-layout"><section className="position-primary"><div className="position-title"><CoinIcon asset={position.asset} /><div><p className="overline">Persistent position</p><h1>{position.asset} {position.up ? "↑" : "↓"}</h1></div><span className={`autoroll-badge ${position.active ? "" : "stopped"}`}>{position.active ? "↻ AutoRoll active" : "○ AutoRoll stopped"}</span></div><div className="equity-block"><span>{position.active ? "Strategy equity" : "Final balance"} <InfoTip /></span><strong>{money(equity.toString(), decimals)} <small>tUSDC</small></strong><b>{label} from starting balance</b></div><EquityCurve position={position} decimals={decimals} /><LiveRollover position={position} phase={phase} /><div className="position-stats"><span><small>Starting balance</small><b>{money(position.principal, decimals)}</b></span><span><small>Total rolls</small><b>{position.rolls}</b></span><span><small>Consecutive losses</small><b>{position.losses} / {position.policy.maxLosses || "∞"}</b></span></div></section><aside className="position-side"><section className="panel"><p className="overline">Automation</p><dl><div><dt>Vault</dt><dd>{VAULT ? <ExplorerLink>{shortHash(VAULT)}</ExplorerLink> : "—"}</dd></div><div><dt>Driver</dt><dd>Keeper</dd></div><div><dt>Fallback</dt><dd>Permissionless</dd></div><div><dt>Current state</dt><dd>{position.active ? exposed ? "In active window" : "Waiting for successor" : "Run complete"}</dd></div><div><dt>Maximum entry</dt><dd>{position.policy.maxPrice.toFixed(2)}</dd></div></dl></section>{position.active ? <section className="panel stop-panel"><h3>{exposed ? "Stop after current window" : "Stop AutoRoll"}</h3><p>{exposed ? "Your current window will finish normally. AutoRoll will redeem it and will not enter the successor." : "Your managed balance is between windows and can be returned immediately."}</p>{onStop && <button className="button danger full" onClick={onStop}>{exposed ? "Stop after current window" : "Stop and redeem"}</button>}</section> : <section className="panel completion-panel"><p className="overline">Final state</p><h3>Policy enforced</h3><p>{completionCopy}</p></section>}</aside></div><section className="panel activity-panel"><div className="panel-heading"><h2>Roll history</h2><span>Latest {Math.min(positionFeed.length, 14)} of {position.rolls} on-chain rolls</span></div><Feed feed={positionFeed} decimals={decimals} numbered txs={rollTxs} /><p className="verify-line">Every roll above is a transaction on Somnia Shannon. <ExplorerLink tab="txs">See them on the explorer</ExplorerLink><ExplorerLink tab="internal_txns">The vault's calls into DreamDEX</ExplorerLink></p></section></>;
+  return <><button className="back-button" onClick={back}>← Portfolio</button><StalledNotice live={live} show={position.active} /><div className="position-layout"><section className="position-primary"><div className="position-title"><CoinIcon asset={position.asset} /><div><p className="overline">Persistent position</p><h1>{position.asset} {position.up ? "↑" : "↓"}</h1></div><span className={`autoroll-badge ${position.active && isDriven(live) ? "" : "stopped"}`}>{!position.active ? "○ AutoRoll stopped" : isDriven(live) ? "↻ AutoRoll active" : "⏸ Not rolling"}</span></div><div className="equity-block"><span>{position.active ? "Strategy equity" : "Final balance"} <InfoTip /></span><strong>{money(equity.toString(), decimals)} <small>tUSDC</small></strong><b>{label} from starting balance</b></div><EquityCurve position={position} decimals={decimals} /><LiveRollover position={position} phase={phase} /><div className="position-stats"><span><small>Starting balance</small><b>{money(position.principal, decimals)}</b></span><span><small>Total rolls</small><b>{position.rolls}</b></span><span><small>Consecutive losses</small><b>{position.losses} / {position.policy.maxLosses || "∞"}</b></span></div></section><aside className="position-side"><section className="panel"><p className="overline">Automation</p><dl><div><dt>Vault</dt><dd>{VAULT ? <ExplorerLink>{shortHash(VAULT)}</ExplorerLink> : "—"}</dd></div><div><dt>Driver</dt><dd>Keeper</dd></div><div><dt>Fallback</dt><dd>Permissionless</dd></div><div><dt>Current state</dt><dd>{position.active ? exposed ? "In active window" : "Waiting for successor" : "Run complete"}</dd></div><div><dt>Maximum entry</dt><dd>{position.policy.maxPrice.toFixed(2)}</dd></div></dl></section>{position.active ? <section className="panel stop-panel"><h3>{exposed ? "Stop after current window" : "Stop AutoRoll"}</h3><p>{exposed ? "Your current window will finish normally. AutoRoll will redeem it and will not enter the successor." : "Your managed balance is between windows and can be returned immediately."}</p>{onStop && <button className="button danger full" onClick={onStop}>{exposed ? "Stop after current window" : "Stop and redeem"}</button>}</section> : <section className="panel completion-panel"><p className="overline">Final state</p><h3>Policy enforced</h3><p>{completionCopy}</p></section>}</aside></div><section className="panel activity-panel"><div className="panel-heading"><h2>Roll history</h2><span>Latest {Math.min(positionFeed.length, 14)} of {position.rolls} on-chain rolls</span></div><Feed feed={positionFeed} decimals={decimals} numbered txs={rollTxs} /><p className="verify-line">Every roll above is a transaction on Somnia Shannon. <ExplorerLink tab="txs">See them on the explorer</ExplorerLink><ExplorerLink tab="internal_txns">The vault's calls into DreamDEX</ExplorerLink></p></section></>;
 }
 
 function LiveRollover({ position, phase }: { position: Position; phase: string }) {
@@ -185,7 +202,43 @@ function LiveRollover({ position, phase }: { position: Position; phase: string }
 
 export function ActivityScreen({ feed, decimals }: { feed: RollerEvent[]; decimals: number }) { return <><PageTitle eyebrow="Vault history" title="Activity" detail="Entries, settlements, automatic rolls, and exits in plain language." /><section className="panel activity-panel">{feed.length ? <Feed feed={feed} decimals={decimals} /> : <EmptyState title="Nothing here yet" detail="Your AutoRoll activity will appear after you open a position." />}<p className="verify-line">Read from vault state. <ExplorerLink tab="txs">Live transactions on Shannon Explorer</ExplorerLink><ExplorerLink tab="internal_txns">Calls into DreamDEX</ExplorerLink></p></section></>; }
 
-export function StatusScreen({ connected }: { connected: boolean }) { return <div className="status-page"><PageTitle eyebrow="Live infrastructure" title="AutoRoll status" detail="The execution model shown here reflects the deployed showcase configuration." /><section className="status-overall"><i className={`status-dot ${connected ? "live" : ""}`} /><div><b>{connected ? "Operational" : "Connecting"}</b><span>Somnia Shannon testnet</span></div></section><div className="status-list"><StatusRow name="DreamDEX" value={connected ? "Connected" : "Checking"} good={connected} /><StatusRow name="Vault" value={VAULT ? "Deployed" : "Unavailable"} good={Boolean(VAULT)} link={VAULT} /><StatusRow name="Roll execution" value="Keeper" good /><StatusRow name="Permissionless fallback" value="Available" good /><StatusRow name="Validator reactivity" value="Not active" /></div><p className="status-note">AutoRoll supports a native Somnia reactivity architecture. The current showcase deployment is intentionally reported as keeper-driven.</p></div>; }
+export function StatusScreen({ connected }: { connected: boolean }) {
+  const live = useLiveness();
+  const driven = isDriven(live);
+  const known = live.state !== "checking" && live.state !== "unknown";
+  const overall = !known ? "Checking" : driven ? "Operational" : live.state === "never" ? "Idle" : "Rolling stopped";
+  return <div className="status-page">
+    <PageTitle eyebrow="Live infrastructure" title="AutoRoll status" detail="Measured from the vault's own activity on Somnia Shannon, not self-reported." />
+    <section className={`status-overall ${driven ? "" : known && live.state !== "never" ? "bad" : ""}`}>
+      <i className={`status-dot ${driven ? "live" : ""}`} />
+      <div><b>{overall}</b><span>Somnia Shannon testnet</span></div>
+    </section>
+    <div className="status-list">
+      <StatusRow name="DreamDEX" value={connected ? "Connected" : "Checking"} good={connected} />
+      <StatusRow name="Vault" value={VAULT ? "Deployed" : "Unavailable"} good={Boolean(VAULT)} link={VAULT} />
+      <StatusRow name="Roll execution" value={rollExecutionLabel(live)} good={driven} />
+      <StatusRow name="Permissionless fallback" value="Available" good />
+      <StatusRow name="Validator reactivity" value="Not active" />
+    </div>
+    {live.state === "stalled" && <p className="status-note bad">No roll has settled for {humanAgo(live.lastRollAgoS)}. Any open position is holding its balance and is not entering new windows. The vault is unaffected and its entry points stay open to anyone.</p>}
+    <p className="status-note">AutoRoll supports a native Somnia reactivity architecture. The current deployment is keeper-driven, and its entry points are permissionless so anyone can advance a position.</p>
+  </div>;
+}
+
+/*  Reports what is observably happening, not what is configured. The previous
+    version was the hardcoded string "Keeper", which kept claiming healthy
+    execution for eleven days after the keeper had died. */
+function rollExecutionLabel(live: Liveness): string {
+  switch (live.state) {
+    case "rolling": return "Keeper · active";
+    case "quiet": return `Keeper · last roll ${humanAgo(live.lastRollAgoS)} ago`;
+    case "stalled": return `Stopped · ${humanAgo(live.lastRollAgoS)} since last roll`;
+    case "never": return "No rolls yet";
+    case "checking": return "Checking";
+    default: return "Unknown";
+  }
+}
+
 function StatusRow({ name, value, good = false, link }: { name: string; value: string; good?: boolean; link?: string }) { return <div><span>{name}</span><b><i className={`status-dot ${good ? "live" : ""}`} />{value}{link && <ExplorerLink address={link} />}</b></div>; }
 function InfoStrip() { return <div className="info-strip"><span>↻</span><div><b>One position across eligible windows</b><p>A missed price limit leaves funds in the vault. AutoRoll never creates a resting order.</p></div></div>; }
 function InfoTip() { return <span className="info-tip" title="Idle vault balance plus capital currently committed to a live window. It is not a mark-to-market or an immediately redeemable quote.">i</span>; }
