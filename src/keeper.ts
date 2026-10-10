@@ -18,6 +18,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  fallback,
   http,
   keccak256,
   parseAbi,
@@ -81,6 +82,27 @@ export interface KeeperStatus {
 /** The explorer's log index is not bounded by the RPC's ~1000-block window,
  *  which is the only way to find a market a position entered days ago. */
 const EXPLORER_API = "https://shannon-explorer.somnia.network/api/v2";
+
+/**
+ *  Every Shannon RPC we know works, tried in order.
+ *
+ *  A single endpoint is what turned a DNS blip into an eleven-day outage:
+ *  `dream-rpc.somnia.network` stopped resolving, the keeper died on startup,
+ *  and launchd restarted it into the same failure every ten seconds. A
+ *  configured RPC goes first, but it is no longer the only one.
+ */
+const RPC_ENDPOINTS = [
+  "https://api.infra.testnet.somnia.network/",
+  "https://dream-rpc.somnia.network/",
+  "https://rpc.ankr.com/somnia_testnet",
+];
+
+function rpcTransport(preferred?: string) {
+  const urls = [preferred, ...RPC_ENDPOINTS].filter(
+    (u, i, all): u is string => Boolean(u) && all.indexOf(u) === i,
+  );
+  return fallback(urls.map((u) => http(u, { retryCount: 2 })));
+}
 const TOPIC_POSITION_ROLLED =
   "0x85577a2f7c799f990d3cd76faa231656fda00599178083bfda685f816b6afe0e";
 /** How often to check the vault's actual state rather than the event stream. */
@@ -96,14 +118,14 @@ export class Keeper {
   private lastError: string | null = null;
 
   constructor(private readonly opts: KeeperOpts) {
-    const url = opts.rpcUrl ?? NET.httpRpcUrl;
-    this.publicClient = createPublicClient({ chain: NET.chain, transport: http(url) });
+    const transport = rpcTransport(opts.rpcUrl);
+    this.publicClient = createPublicClient({ chain: NET.chain, transport });
     this.wallet =
       opts.live && opts.privateKey
         ? createWalletClient({
             account: privateKeyToAccount(opts.privateKey),
             chain: NET.chain,
-            transport: http(url),
+            transport,
           })
         : null;
   }
