@@ -6,6 +6,7 @@ import { ExplorerLink, shortHash } from "./ExplorerLink";
 import { useRollTxs } from "../lib/useRollTxs";
 import { usePrices, formatUsd, type Price } from "../lib/usePrices";
 import { useLiveness, humanAgo, isDriven, type Liveness } from "../lib/useLiveness";
+import { useVaultStats } from "../lib/useVaultStats";
 import { EquityCurve } from "./EquityCurve";
 import { useNavigation, type Route } from "../lib/navigation";
 import { money, pnl } from "../lib/format";
@@ -149,18 +150,58 @@ function StalledNotice({ live, show, onResume, resuming, resumeError }: { live: 
   </section>;
 }
 
+/*  Every position in the vault, not the best one.
+ *
+ *  The portfolio used to lead with whichever run looked best - one finished
+ *  +19.2% while the vault overall is down. On a public chain the gap between
+ *  those two numbers is a few minutes of anyone's time to find, so it belongs
+ *  on the page rather than in a footnote.
+ *
+ *  The break-even line is the honest frame for all of it: the vault crosses
+ *  the spread on every window, so it needs to win more often than the price it
+ *  pays, and nothing in the design makes that happen. The user brings the view.
+ */
+function VaultPerformance({ stats, decimals }: { stats: ReturnType<typeof useVaultStats>; decimals: number }) {
+  if (stats.loading || stats.positions === 0) return null;
+  const net = stats.capitalOut - stats.capitalIn;
+  const pct = stats.capitalIn > 0n ? (Number(net) / Number(stats.capitalIn)) * 100 : 0;
+  const good = net >= 0n;
+  const winPct = stats.settled ? (stats.wins / stats.settled) * 100 : null;
+  const breakEven = stats.avgEntryPrice != null ? stats.avgEntryPrice * 100 : null;
+
+  return <section className="vault-performance">
+    <div className="vp-head">
+      <p className="overline">Every position in this vault</p>
+      <h2>Vault performance</h2>
+    </div>
+    <div className="vp-grid">
+      <span><small>Deposited</small><b>{money(stats.capitalIn.toString(), decimals)}</b></span>
+      <span><small>Returned &amp; held</small><b>{money(stats.capitalOut.toString(), decimals)}</b></span>
+      <span><small>Net</small><b className={good ? "positive" : "negative"}>{good ? "+" : "\u2212"}{money((net < 0n ? -net : net).toString(), decimals)} <i>({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</i></b></span>
+      <span><small>Runs ahead</small><b>{stats.up} / {stats.positions}</b></span>
+    </div>
+    {winPct != null && <p className="vp-note">
+      <b>{stats.wins} of {stats.settled}</b> windows won ({winPct.toFixed(1)}%)
+      {breakEven != null && <> · average entry <b>{stats.avgEntryPrice!.toFixed(3)}</b>, so break-even is <b>{breakEven.toFixed(1)}%</b></>}
+      {stats.sampleTruncated && " · recent settlements only"}
+    </p>}
+    <p className="vp-caveat">AutoRoll is execution, not a prediction. It crosses the spread on every window, so a position has to win more often than the price it pays to come out ahead. Past results here are a small sample on testnet and say nothing about what yours will do.</p>
+  </section>;
+}
+
 function PolicyCard() { return <div className="policy-card"><div><span>Per window</span><b>20% of managed balance</b></div><div><span>Maximum entry</span><b>0.65</b></div><div><span>Automatic stop</span><b>4 consecutive losses</b></div></div>; }
 function TransactionProgress({ step }: { step: string | null }) { const approval = step?.toLowerCase().includes("approv"); return <div className="transaction-state" role="status"><span className="rolling-mark">↻</span><div><p className="overline">Opening position</p><h3>{approval ? "Waiting for your wallet" : "Confirming on-chain"}</h3><p>{step ?? "Preparing the transaction…"}</p></div></div>; }
 
 export function PortfolioScreen({ positions, decimals, loading, success, onDismissSuccess }: { positions: Position[]; decimals: number; loading: boolean; success?: { asset: string; up: boolean; stake: number } | null; onDismissSuccess?: () => void }) {
   const live = useLiveness();
+  const stats = useVaultStats();
   const { go } = useNavigation();
   const active = positions.filter((p) => p.active);
   const completed = positions.filter((p) => !p.active).reverse();
   const managed = active.reduce((sum, p) => sum + BigInt(p.bankroll) + BigInt(p.atRisk), 0n);
   const newest = [...active].reverse().find((p) => !success || p.asset === success.asset && p.up === success.up);
   const finalEquity = (p: Position) => p.history.at(-1)?.bankroll ?? p.principal;
-  return <><PageTitle eyebrow="Your AutoRoll" title="Portfolio" detail="Persistent positions and balances proven by the vault." /><StalledNotice live={live} show={active.length > 0} />{success && <section className="success-card" role="status"><span className="success-check">✓</span><div><p className="overline">Position opened</p><h2>{success.asset} {success.up ? "↑" : "↓"} · {success.stake} tUSDC</h2><b>↻ AutoRoll active</b><p>Your position will continue through eligible successor windows until you stop it.</p></div><div>{newest && <button className="button primary" onClick={() => { onDismissSuccess?.(); go({ name: "position", id: newest.id }); }}>View position</button>}<button className="button secondary" onClick={onDismissSuccess}>Done</button></div></section>}{loading ? <PortfolioSkeleton /> : <>{active.length > 0 ? <><section className="portfolio-summary"><span>Managed balance <InfoTip /></span><strong>{money(managed.toString(), decimals)} <small>tUSDC</small></strong><p>Idle vault balance plus capital committed to current windows. This is not an instantly redeemable mark price.</p></section><div className="positions-list"><h2>Active positions</h2>{active.map((p) => <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>{isDriven(live) ? "↻ AutoRoll active" : "⏸ Not rolling"}</small></span><span><b>{money((BigInt(p.bankroll) + BigInt(p.atRisk)).toString(), decimals)} tUSDC</b><small>{p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>)}</div></> : completed.length ? <CompletedProof position={completed[0]} decimals={decimals} onOpen={() => go({ name: "position", id: completed[0].id })} /> : <EmptyState title="No active positions" detail="Take a market view once. AutoRoll handles eligible windows after that." action="Explore markets" onClick={() => go({ name: "markets" })} />}{completed.length > 0 && <div className="positions-list completed-list"><h2>Completed runs <small>Verified from vault state</small></h2>{completed.map((p) => { const result = pnl(finalEquity(p), p.principal); return <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>Run complete · position #{p.id}</small></span><span><b>{money(finalEquity(p), decimals)} tUSDC</b><small className={result.pct >= 0 ? "positive" : "negative"}>{result.label} · {p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>; })}</div>}</>}</>;
+  return <><PageTitle eyebrow="Your AutoRoll" title="Portfolio" detail="Persistent positions and balances proven by the vault." /><StalledNotice live={live} show={active.length > 0} /><VaultPerformance stats={stats} decimals={decimals} />{success && <section className="success-card" role="status"><span className="success-check">✓</span><div><p className="overline">Position opened</p><h2>{success.asset} {success.up ? "↑" : "↓"} · {success.stake} tUSDC</h2><b>↻ AutoRoll active</b><p>Your position will continue through eligible successor windows until you stop it.</p></div><div>{newest && <button className="button primary" onClick={() => { onDismissSuccess?.(); go({ name: "position", id: newest.id }); }}>View position</button>}<button className="button secondary" onClick={onDismissSuccess}>Done</button></div></section>}{loading ? <PortfolioSkeleton /> : <>{active.length > 0 ? <><section className="portfolio-summary"><span>Managed balance <InfoTip /></span><strong>{money(managed.toString(), decimals)} <small>tUSDC</small></strong><p>Idle vault balance plus capital committed to current windows. This is not an instantly redeemable mark price.</p></section><div className="positions-list"><h2>Active positions</h2>{active.map((p) => <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>{isDriven(live) ? "↻ AutoRoll active" : "⏸ Not rolling"}</small></span><span><b>{money((BigInt(p.bankroll) + BigInt(p.atRisk)).toString(), decimals)} tUSDC</b><small>{p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>)}</div></> : completed.length ? <CompletedProof position={completed[0]} decimals={decimals} onOpen={() => go({ name: "position", id: completed[0].id })} /> : <EmptyState title="No active positions" detail="Take a market view once. AutoRoll handles eligible windows after that." action="Explore markets" onClick={() => go({ name: "markets" })} />}{completed.length > 0 && <div className="positions-list completed-list"><h2>Completed runs <small>Verified from vault state</small></h2>{completed.map((p) => { const result = pnl(finalEquity(p), p.principal); return <button className="position-row" key={p.id} onClick={() => go({ name: "position", id: p.id })}><CoinIcon asset={p.asset} size={38} /><span><b>{p.asset} {p.up ? "↑" : "↓"}</b><small>Run complete · position #{p.id}</small></span><span><b>{money(finalEquity(p), decimals)} tUSDC</b><small className={result.pct >= 0 ? "positive" : "negative"}>{result.label} · {p.rolls} {p.rolls === 1 ? "roll" : "rolls"}</small></span><i>→</i></button>; })}</div>}</>}</>;
 }
 
 function CompletedProof({ position, decimals, onOpen }: { position: Position; decimals: number; onOpen: () => void }) {

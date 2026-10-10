@@ -462,3 +462,24 @@ footer { max-width: 1180px; margin: 0 auto; padding: 42px 24px; display: flex; j
 .status-note.bad { color: var(--negative); }
 .stalled-notice .button { flex: none; align-self: center; white-space: nowrap; }
 .stalled-error { color: var(--negative) !important; font-weight: 500; }
+
+/* ------------------------------------------------------ vault performance */
+
+/*  Sits above the viewer's own balance on purpose: the honest aggregate should
+    be read before the flattering individual run, not after it. */
+.vault-performance { margin-bottom: 16px; padding: 20px 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.vp-head { margin-bottom: 16px; }
+.vp-head h2 { margin: 2px 0 0; font-size: 17px; letter-spacing: -.02em; }
+.vp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-sm, 10px); overflow: hidden; }
+.vp-grid span { display: grid; gap: 3px; padding: 12px 14px; background: var(--surface); }
+.vp-grid small { color: var(--text-muted); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; }
+.vp-grid b { font-size: 16px; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.vp-grid b i { font-style: normal; font-size: 11px; font-weight: 500; }
+.vp-note { margin: 12px 0 0; color: var(--text-secondary); font-size: 11.5px; line-height: 1.5; }
+.vp-note b { color: var(--text); font-weight: 650; }
+.vp-caveat { margin: 7px 0 0; color: var(--text-muted); font-size: 10.5px; line-height: 1.55; max-width: 76ch; }
+
+@media (max-width: 720px) {
+  .vault-performance { padding: 16px; }
+  .vp-grid { grid-template-columns: repeat(2, 1fr); }
+}

@@ -14,6 +14,7 @@ export const vaultAbi = parseAbi([
   "function inMarketCount(bytes32 marketId) view returns (uint256)",
   "function positions(uint256) view returns (address user, bytes32 asset, bool up, uint256 principal, uint256 bankroll, uint256 atRisk, uint256 quantity, uint32 rolls, uint32 losses, bool active, Policy policy)",
   "function pendingCount(bytes32 asset) view returns (uint256)",
+  "function nextPositionId() view returns (uint256)",
   "event PositionOpened(uint256 indexed id, address indexed user, bytes32 asset, bool up, uint256 stake)",
   "event PositionRolled(uint256 indexed id, bytes32 indexed marketId, uint256 staked, uint32 rolls)",
   "event PositionSettled(uint256 indexed id, bytes32 indexed marketId, uint256 staked, uint256 returned, uint256 bankroll, bool won)",
