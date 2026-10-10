@@ -5,7 +5,7 @@ import { useVault } from "./lib/useVault";
 import { DEMO_ADDRESS } from "./lib/chain";
 import { RollToasts } from "./components/RollToasts";
 import { useWindows } from "./lib/useWindows";
-import { closePosition, faucet, openPosition } from "./lib/vault";
+import { closePosition, faucet, openPosition, resumePosition } from "./lib/vault";
 import { DEFAULT_POLICY } from "./lib/policy";
 import { onChainMode, shannon, VAULT } from "./lib/chain";
 import type { RollerEvent, Snapshot } from "./lib/types";
@@ -53,6 +53,24 @@ function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+
+  /*  Anyone can settle a stranded window — pokeFinalized is permissionless, so
+      this does not require being the position's owner, only a wallet. */
+  async function resume(id: number) {
+    if (!wallet.account) { void connect(); return; }
+    setResuming(true);
+    setResumeError(null);
+    try {
+      await resumePosition(wallet.account, id);
+      await refresh();
+    } catch (err: any) {
+      if (err?.code !== 4001) setResumeError(err?.shortMessage ?? err?.message ?? "Could not settle that window");
+    } finally {
+      setResuming(false);
+    }
+  }
   const [opened, setOpened] = useState<{ asset: string; up: boolean; stake: number } | null>(null);
 
   useEffect(() => {
@@ -95,7 +113,7 @@ function OnChainApp({ markets }: { markets: ReturnType<typeof useWindows> }) {
     {route.name === "markets" && <MarketsScreen markets={markets} />}
     {route.name === "market" && <MarketScreen asset={route.asset} initialSide={route.side} balance={balance} decimals={decimals} connected={ready} busy={busy} step={step} onConnect={() => void connect()} onOpen={(r) => void open(r)} />}
     {route.name === "portfolio" && <PortfolioScreen positions={positions} decimals={decimals} loading={loading && !positions.length} success={opened} onDismissSuccess={() => setOpened(null)} />}
-    {route.name === "position" && (currentPosition ? <PositionScreen position={currentPosition} decimals={decimals} feed={feed} onStop={ready ? () => void stop(currentPosition.id) : undefined} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
+    {route.name === "position" && (currentPosition ? <PositionScreen position={currentPosition} decimals={decimals} feed={feed} onStop={ready ? () => void stop(currentPosition.id) : undefined} onResume={() => void resume(currentPosition.id)} resuming={resuming} resumeError={resumeError} /> : <NotFound onMarkets={() => go({ name: "portfolio" })} />)}
     {route.name === "activity" && <ActivityScreen feed={feed} decimals={decimals} />}
     {route.name === "status" && <StatusScreen connected={markets.connected} />}
     {ready && balance === 0n && route.name !== "status" && <button className="test-funds" disabled={busy} onClick={async () => { if (!wallet.account) return; setBusy(true); try { await faucet(wallet.account); await refresh(); } finally { setBusy(false); } }}>Get test tUSDC</button>}

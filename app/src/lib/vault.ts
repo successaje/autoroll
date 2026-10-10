@@ -1,5 +1,5 @@
 import { parseAbi } from "viem";
-import { COLLATERAL, COLLATERAL_DECIMALS, VAULT, publicClient, walletClient } from "./chain";
+import { COLLATERAL, COLLATERAL_DECIMALS, VAULT, publicClient, shannon, walletClient } from "./chain";
 import type { Policy, Position } from "./types";
 
 export const vaultAbi = parseAbi([
@@ -9,6 +9,9 @@ export const vaultAbi = parseAbi([
   "function positionsOf(address user) view returns (uint256[])",
   "function equityOf(uint256 id) view returns (uint256)",
   "function curveOf(uint256 id) view returns (uint256[] bankrolls, bool[] won, uint256 firstRoll)",
+  "function pokeFinalized(bytes32 marketId)",
+  "function pokeCreated(bytes32 marketId, bytes32 asset)",
+  "function inMarketCount(bytes32 marketId) view returns (uint256)",
   "function positions(uint256) view returns (address user, bytes32 asset, bool up, uint256 principal, uint256 bankroll, uint256 atRisk, uint256 quantity, uint32 rolls, uint32 losses, bool active, Policy policy)",
   "function pendingCount(bytes32 asset) view returns (uint256)",
   "event PositionOpened(uint256 indexed id, address indexed user, bytes32 asset, bool up, uint256 stake)",
@@ -213,4 +216,73 @@ export async function readBalance(account: `0x${string}`): Promise<bigint> {
     functionName: "balanceOf",
     args: [account],
   });
+}
+
+
+/** keccak("PositionRolled(uint256,bytes32,uint256,uint32)") — topic2 is the
+ *  market the position entered. */
+const TOPIC_ROLLED = "0x85577a2f7c799f990d3cd76faa231656fda00599178083bfda685f816b6afe0e";
+
+/**
+ *  The market a position is currently exposed to.
+ *
+ *  The vault maps market → positions, not the reverse, so this comes from the
+ *  position's own last PositionRolled log. The explorer index rather than
+ *  `eth_getLogs`, because a position can sit in a settled window for days and
+ *  the RPC log window is about 100 seconds.
+ */
+export async function findCurrentMarket(positionId: number): Promise<`0x${string}` | null> {
+  if (!VAULT) return null;
+  const idTopic = `0x${positionId.toString(16).padStart(64, "0")}`;
+  const url = `${shannon.blockExplorers.default.url}/api/v2/addresses/${VAULT}/logs`;
+  let params = "";
+  for (let page = 0; page < 6; page++) {
+    const res = await fetch(url + params);
+    if (!res.ok) return null;
+    const body = await res.json();
+    for (const item of body.items ?? []) {
+      const [t0, t1, t2] = (item.topics ?? []) as (string | null)[];
+      if (t0?.toLowerCase() === TOPIC_ROLLED && t1?.toLowerCase() === idTopic && t2) {
+        return t2 as `0x${string}`;
+      }
+    }
+    if (!body.next_page_params) return null;
+    params = "?" + new URLSearchParams(body.next_page_params).toString();
+  }
+  return null;
+}
+
+/**
+ *  Settle a position that is stranded in an expired window.
+ *
+ *  `pokeFinalized` is permissionless by design, which until now was only a
+ *  claim on the status page. This makes it an action: when the keeper dies,
+ *  anybody holding a wallet can redeem the stranded window and return the
+ *  position to its queue, without being the position's owner.
+ */
+export async function resumePosition(
+  account: `0x${string}`,
+  positionId: number,
+): Promise<`0x${string}`> {
+  if (!VAULT) throw new Error("VITE_VAULT_ADDRESS is not set");
+  const marketId = await findCurrentMarket(positionId);
+  if (!marketId) throw new Error("Could not find the window this position is in");
+
+  const exposed = await publicClient.readContract({
+    address: VAULT,
+    abi: vaultAbi,
+    functionName: "inMarketCount",
+    args: [marketId],
+  });
+  if (exposed === 0n) throw new Error("That window has already been settled");
+
+  const wallet = walletClient(account);
+  const hash = await wallet.writeContract({
+    address: VAULT,
+    abi: vaultAbi,
+    functionName: "pokeFinalized",
+    args: [marketId],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }

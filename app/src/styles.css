@@ -460,3 +460,5 @@ footer { max-width: 1180px; margin: 0 auto; padding: 42px 24px; display: flex; j
 
 .status-overall.bad { border-color: color-mix(in srgb, var(--negative) 32%, var(--border)); background: color-mix(in srgb, var(--negative) 5%, var(--surface)); }
 .status-note.bad { color: var(--negative); }
+.stalled-notice .button { flex: none; align-self: center; white-space: nowrap; }
+.stalled-error { color: var(--negative) !important; font-weight: 500; }
